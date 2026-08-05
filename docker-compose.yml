@@ -1,0 +1,13 @@
+services:
+  backend:
+    image: sdp-backend:latest
+    ports:
+      - "8080:8080"
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "5173:80"
+    depends_on:
+      - backend
