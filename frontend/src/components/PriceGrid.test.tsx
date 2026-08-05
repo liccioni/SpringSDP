@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { Server, WebSocket as MockWebSocket } from 'mock-socket'
 import PriceGrid from './PriceGrid'
 
@@ -66,5 +67,77 @@ describe('PriceGrid', () => {
 
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByRole('row', { name: /hi/i })).not.toBeInTheDocument()
+  })
+
+  it('sends a SELL CREATE_TRADE at the bid price when the bid cell is double-clicked', async () => {
+    let received: string | undefined
+    mockServer.on('connection', (socket) => {
+      socket.on('message', (message) => {
+        received = message as string
+      })
+      socket.send(
+        JSON.stringify({
+          type: 'PRICE_TICK',
+          payload: { symbol: 'USD/CHF', bid: 0.9123, ask: 0.9125, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid />)
+    const bidCell = await screen.findByText('0.9123')
+    await userEvent.dblClick(bidCell)
+
+    await waitFor(() => expect(received).toBeDefined())
+    expect(JSON.parse(received!)).toEqual({
+      type: 'CREATE_TRADE',
+      payload: { symbol: 'USD/CHF', side: 'SELL', price: 0.9123, quantity: 1_000_000 },
+    })
+  })
+
+  it('sends a BUY CREATE_TRADE at the ask price when the ask cell is double-clicked', async () => {
+    let received: string | undefined
+    mockServer.on('connection', (socket) => {
+      socket.on('message', (message) => {
+        received = message as string
+      })
+      socket.send(
+        JSON.stringify({
+          type: 'PRICE_TICK',
+          payload: { symbol: 'AUD/USD', bid: 0.6601, ask: 0.6603, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid />)
+    const askCell = await screen.findByText('0.6603')
+    await userEvent.dblClick(askCell)
+
+    await waitFor(() => expect(received).toBeDefined())
+    expect(JSON.parse(received!)).toEqual({
+      type: 'CREATE_TRADE',
+      payload: { symbol: 'AUD/USD', side: 'BUY', price: 0.6603, quantity: 1_000_000 },
+    })
+  })
+
+  it('does not send a trade when the symbol cell is double-clicked', async () => {
+    let received: string | undefined
+    mockServer.on('connection', (socket) => {
+      socket.on('message', (message) => {
+        received = message as string
+      })
+      socket.send(
+        JSON.stringify({
+          type: 'PRICE_TICK',
+          payload: { symbol: 'NZD/USD', bid: 0.61, ask: 0.6102, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid />)
+    const symbolCell = await screen.findByText('NZD/USD')
+    await userEvent.dblClick(symbolCell)
+
+    await new Promise((resolve) => setTimeout(resolve, 100))
+    expect(received).toBeUndefined()
   })
 })
