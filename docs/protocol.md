@@ -4,7 +4,7 @@
 
 ## Message envelope
 
-All messages are JSON, wrapped in an envelope with a `type` field.
+All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010](decisions/0010-event-driven-protocol.md) for why the protocol is event-driven and envelope-shaped, and [ADR 0008](decisions/0008-use-raw-websockets.md) for why it rides on raw WebSockets rather than a higher-level messaging framework.
 
 ## Server → client
 
