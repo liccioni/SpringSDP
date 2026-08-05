@@ -1,0 +1,61 @@
+plugins {
+	id 'java'
+	id 'org.springframework.boot' version '4.1.0'
+	id 'io.spring.dependency-management' version '1.1.7'
+	id 'jacoco'
+}
+
+group = 'com.sdp'
+version = '0.0.1-SNAPSHOT'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	implementation 'org.springframework.boot:spring-boot-starter-webflux'
+
+	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'io.projectreactor:reactor-test'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+}
+
+tasks.named('test') {
+	useJUnitPlatform {
+		excludeTags 'integration'
+	}
+}
+
+tasks.register('integrationTest', Test) {
+	description = 'Runs integration tests (tagged "integration").'
+	group = 'verification'
+	useJUnitPlatform {
+		includeTags 'integration'
+	}
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+	dependsOn tasks.named('integrationTest')
+}
+
+jacoco {
+	toolVersion = '0.8.12'
+}
+
+tasks.named('jacocoTestReport') {
+	dependsOn tasks.named('test')
+	reports {
+		xml.required = true
+		csv.required = true
+		html.required = true
+	}
+}
