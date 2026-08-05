@@ -83,6 +83,15 @@ npm run test:unit --prefix frontend
 npm run test:integration --prefix frontend   # if applicable
 ```
 
+**For issues touching observable behavior** (a WebSocket message, rendered
+UI, anything a user or another service would notice) — not pure refactors or
+internal-only changes — verify live in addition to automated tests: start
+the real backend and frontend, and use the `claude-in-chrome` tools to
+exercise the actual change. Automated tests can pass while the real thing
+doesn't work; this is what eventually caught issue #7 being closed without
+the WebSocket handler actually being wired up, at the start of #9 instead of
+immediately.
+
 ## 6. Commit
 
 Conventional Commit prefix (`feat:`, `fix:`, `docs:`, `chore:`, `test:`), one
