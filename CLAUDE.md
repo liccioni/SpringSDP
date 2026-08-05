@@ -72,7 +72,7 @@ That is the entire MVP.
 Backend
 
 * Java 21
-* Spring Boot 3.x
+* Spring Boot 4.x — see [ADR 0004](docs/decisions/0004-spring-boot-4.md)
 * Spring WebFlux
 * Reactor
 * Raw WebSockets
