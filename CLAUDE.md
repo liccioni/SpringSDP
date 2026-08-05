@@ -91,6 +91,7 @@ Local environment
 
 * Docker
 * Docker Compose
+* Jib (Gradle plugin) — builds the backend's container image; no hand-written backend Dockerfile. See [ADR 0005](docs/decisions/0005-jib-for-backend-image.md).
 
 Used to run the backend and frontend consistently across machines. This is packaging for local/dev use, not a move toward microservices — it does not conflict with "no microservices" in the core philosophy.
 
@@ -224,7 +225,6 @@ backend/
   market/
   trade/
   common/
-  Dockerfile
 
 frontend/
   components/

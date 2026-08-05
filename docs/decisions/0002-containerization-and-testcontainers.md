@@ -2,7 +2,7 @@
 
 Date: 2026-08-05
 
-Status: Accepted
+Status: Partially superseded by [ADR 0005](0005-jib-for-backend-image.md) — the backend now uses Jib instead of a hand-written Dockerfile. The Docker Compose and frontend-Dockerfile decisions below are still accepted as originally written.
 
 ## Context
 
