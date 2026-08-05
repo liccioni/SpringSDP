@@ -94,6 +94,21 @@ Local environment
 
 Used to run the backend and frontend consistently across machines. This is packaging for local/dev use, not a move toward microservices — it does not conflict with "no microservices" in the core philosophy.
 
+Testing
+
+Backend
+
+* JUnit 5
+* Reactor Test (StepVerifier)
+* Spring WebFlux Test (WebTestClient)
+* Testcontainers — from MVP 0.4 onward, see [ADR 0002](docs/decisions/0002-containerization-and-testcontainers.md)
+
+Frontend
+
+* Vitest
+* React Testing Library
+* mock-socket — for simulating the backend WebSocket in integration tests
+
 ⸻
 
 # Architectural principles
@@ -191,6 +206,12 @@ CREATE_TRADE
 All messages should be JSON.
 
 Use a message envelope with a type field.
+
+Endpoint
+
+The backend exposes a single WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type.
+
+The frontend connects directly to this URL (no dev-server proxy) via a `VITE_WS_URL` environment variable, defaulting to `ws://localhost:8080/ws` for local `npm run dev`. Docker Compose overrides this to the backend service's container address.
 
 ⸻
 
