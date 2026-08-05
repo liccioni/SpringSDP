@@ -11,6 +11,7 @@ import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Sinks;
+import reactor.util.concurrent.Queues;
 
 /**
  * Handles CREATE_TRADE requests: creates a Trade, stores it in in-memory
@@ -21,7 +22,10 @@ import reactor.core.publisher.Sinks;
 public class TradeService {
 
     private final List<Trade> blotter = new CopyOnWriteArrayList<>();
-    private final Sinks.Many<Trade> tradeCreated = Sinks.many().multicast().onBackpressureBuffer();
+
+    // autoCancel=false: this sink outlives any single WebSocket connection, so it must
+    // not terminate just because the last subscriber (a disconnecting client) cancels.
+    private final Sinks.Many<Trade> tradeCreated = Sinks.many().multicast().onBackpressureBuffer(Queues.SMALL_BUFFER_SIZE, false);
 
     public Trade createTrade(TradeRequest request) {
         Trade trade = new Trade(
