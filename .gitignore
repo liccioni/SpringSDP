@@ -22,6 +22,7 @@ replay_pid*
 node_modules/
 dist/
 dist-ssr/
+coverage/
 .vite/
 npm-debug.log*
 yarn-debug.log*
