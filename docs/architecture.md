@@ -8,9 +8,9 @@
 
 * Java 21
 * Spring Boot 4.x — see [ADR 0004](decisions/0004-spring-boot-4.md)
-* Spring WebFlux
+* Spring WebFlux — see [ADR 0007](decisions/0007-use-webflux.md)
 * Reactor
-* Raw WebSockets
+* Raw WebSockets — see [ADR 0008](decisions/0008-use-raw-websockets.md)
 * Jackson
 * Gradle
 
@@ -19,7 +19,7 @@
 * React
 * TypeScript
 * Vite
-* AG Grid Community
+* AG Grid Community — see [ADR 0009](decisions/0009-use-ag-grid.md)
 * Native WebSocket API
 
 ### Local environment
@@ -58,7 +58,7 @@ Examples:
 * CREATE_TRADE
 * TRADE_CREATED
 
-This allows future integration with Redis Pub/Sub or Kafka with minimal protocol changes.
+This allows future integration with Redis Pub/Sub or Kafka with minimal protocol changes. See [ADR 0010](decisions/0010-event-driven-protocol.md).
 
 ### Separation of concerns
 
