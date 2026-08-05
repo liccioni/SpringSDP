@@ -6,7 +6,7 @@ A modern FX single dealer platform built with Spring Boot WebFlux, raw WebSocket
 
 ## Status
 
-Pre-MVP 0.1: no application code yet. Work is tracked as [milestones and issues](https://github.com/liccioni/SpringSDP/milestones) on this repo, following the [Incremental roadmap](CLAUDE.md#incremental-roadmap) in CLAUDE.md.
+MVP 0.1 in progress: a minimal WebSocket "hello world" flows end-to-end from backend to frontend, dockerized. Work is tracked as [milestones and issues](https://github.com/liccioni/SpringSDP/milestones) on this repo, following the [Incremental roadmap](CLAUDE.md#incremental-roadmap) in CLAUDE.md.
 
 ## Project layout
 
@@ -18,13 +18,23 @@ docs/       architecture, protocol, roadmap, and decision records
 
 ## Running locally
 
-Not available yet — this section will be filled in once the backend and frontend are scaffolded (see the MVP 0.1 milestone). The plan:
+### Docker Compose
 
 ```sh
-docker compose up   # runs backend + frontend together
+./gradlew -p backend jibDockerBuild   # builds the backend image (once, or after backend changes)
+docker compose up                     # starts both services; rebuilds the frontend automatically
 ```
 
-or run each service independently with `./gradlew bootRun` (backend) and `npm run dev` (frontend).
+Open http://localhost:5173. The backend is reachable directly at `ws://localhost:8080/ws`.
+
+Note: `docker compose up` alone won't pick up backend code changes — Compose can't build the backend image itself, since it's built via [Jib](docs/decisions/0005-jib-for-backend-image.md) rather than a Dockerfile (see [ADR 0006](docs/decisions/0006-hello-world-walking-skeleton.md)). Re-run `jibDockerBuild` after backend changes, then `docker compose up` again.
+
+### Without Docker
+
+```sh
+./gradlew -p backend bootRun   # backend on :8080
+npm --prefix frontend run dev  # frontend on :5173
+```
 
 ## Contributing
 

@@ -29,8 +29,7 @@ yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
-# Environment
-.env
+# Environment (.env holds committed non-secret defaults, e.g. VITE_WS_URL; only local overrides are ignored)
 .env.local
 .env.*.local
 
