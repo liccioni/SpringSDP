@@ -28,6 +28,8 @@ docker compose up                     # frontend rebuilds automatically (it has 
 
 This is not a reversal of ADR 0005 — it's an accurate accounting of what Jib does and doesn't do, documented in the README rather than glossed over.
 
+**Correction (found during MVP 0.1 close-out, see [retro 0001](../retros/0001-mvp-0.1.md)):** the claim above that "frontend rebuilds automatically" is wrong. Docker Compose only builds an image automatically when one doesn't exist *yet* for that service — it never checks whether the build context changed on a later `docker compose up`, Dockerfile or not. A `springsdp-frontend` image built once during this walking-skeleton work kept getting silently reused for the rest of MVP 0.1, serving a stale bundle missing the price grid and trade blotter. The README now correctly says to always pass `--build` (`docker compose up --build`) to pick up frontend changes, the same way `jibDockerBuild` must be re-run for backend changes.
+
 ### 4. WebSocket addressing under Docker Compose (corrects ADR 0003)
 The frontend's `VITE_WS_URL` stays `ws://localhost:8080/ws` even when served from its own container, because the **browser** — not the frontend container — opens the WebSocket connection. It needs the backend's host-published port (`docker-compose.yml` publishes `8080:8080`), not a Docker-internal service name like `backend`, which the host browser cannot resolve. ADR 0003's claim that Compose would override this to "the backend service's container address" was incorrect and is corrected there.
 
