@@ -37,3 +37,9 @@ There is no end-to-end tier yet. Add one only when there's a real UI worth exerc
 ## Code coverage
 
 Coverage is measured and reported on every PR (Jacoco for the backend, Vitest's `v8` coverage provider for the frontend), and uploaded as a CI artifact. It is not gated — CI does not fail on low coverage. Revisit this once the codebase and test suite are established.
+
+⸻
+
+## Known gotchas
+
+* **mock-socket state can leak across tests in the same file.** Sequential tests that each create their own `Server`/`WebSocket` mock against the same URL can interfere with each other if they reuse identical fixture data (the same symbol *and* the same price/payload) — a later test can end up observing a message sent by an earlier test's server. This isn't a bug to work around with extra synchronization; give each test in a file distinct fixture values instead of realistic-looking shared constants, and the tests stay independent.

@@ -2,7 +2,9 @@
 
 ⸻
 
-## MVP 0.1 – Streaming skeleton
+## MVP 0.1 – Streaming skeleton ✅ Done
+
+See [retro 0001](retros/0001-mvp-0.1.md) for what shipped, what was verified, and what was learned.
 
 A user can:
 
