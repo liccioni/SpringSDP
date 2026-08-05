@@ -58,3 +58,14 @@ GitHub Actions runs a single `CI` workflow (`.github/workflows/ci.yml`) on every
 Any change that scaffolds the backend or frontend must provide these exact Gradle tasks / npm scripts so CI keeps working without further changes to the workflow file.
 
 See [Testing](testing.md) for what these tasks and scripts mean and how coverage is handled.
+
+⸻
+
+## Claude Code skills
+
+Two Claude Code skills in `.claude/skills/` automate this workflow rather than duplicating it:
+
+* `ship-issue` — carries a GitHub issue through branch → implement → test → commit → PR → CI, per this document, [Testing](testing.md), and [Code style](code-style.md).
+* `write-adr` — writes a new entry in `docs/decisions/` from `template.md`, numbered and cross-linked consistently with the existing records.
+
+Both skills read the docs rather than restate them, so they can't drift out of sync with this file.
