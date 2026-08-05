@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "file=$(jq -r '.tool_input.file_path // empty'); case \"$file\" in */frontend/src/*) cd \"$CLAUDE_PROJECT_DIR/frontend\" || exit 0; out=$(npm run -s lint 2>&1 && npx tsc -b 2>&1); status=$?;; */backend/src/*.java) cd \"$CLAUDE_PROJECT_DIR/backend\" || exit 0; out=$(./gradlew -q compileJava compileTestJava 2>&1); status=$?;; *) exit 0;; esac; if [ \"$status\" -ne 0 ]; then echo \"$out\" >&2; exit 2; fi; exit 0",
+            "timeout": 120,
+            "statusMessage": "Linting and type-checking..."
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cd \"$CLAUDE_PROJECT_DIR\" || exit 0\nchanged=$(git status --porcelain)\n[ -z \"$changed\" ] && exit 0\nfail=0\nout=\"\"\nif echo \"$changed\" | grep -q \"backend/\"; then\n  res=$(cd backend && ./gradlew -q test 2>&1) || { fail=1; out=\"$out\n--- backend tests ---\n$res\"; }\nfi\nif echo \"$changed\" | grep -q \"frontend/\"; then\n  res=$(cd frontend && npm run -s test:unit 2>&1) || { fail=1; out=\"$out\n--- frontend tests ---\n$res\"; }\nfi\nif [ \"$fail\" -eq 1 ]; then\n  echo \"$out\" >&2\n  exit 2\nfi\nexit 0",
+            "timeout": 180,
+            "statusMessage": "Running tests before finishing..."
+          }
+        ]
+      }
+    ]
+  }
+}
