@@ -87,6 +87,13 @@ Frontend
 * AG Grid Community
 * Native WebSocket API
 
+Local environment
+
+* Docker
+* Docker Compose
+
+Used to run the backend and frontend consistently across machines. This is packaging for local/dev use, not a move toward microservices — it does not conflict with "no microservices" in the core philosophy.
+
 ⸻
 
 # Architectural principles
@@ -196,17 +203,21 @@ backend/
   market/
   trade/
   common/
+  Dockerfile
 
 frontend/
   components/
   services/
   types/
+  Dockerfile
 
 docs/
   architecture.md
   roadmap.md
   protocol.md
   decisions/
+
+docker-compose.yml
 ```
 
 ⸻
@@ -368,7 +379,7 @@ Two tiers, for both backend and frontend:
   * Backend: JUnit 5 tests without the `integration` tag, run via the Gradle `test` task.
   * Frontend: Vitest files matching `*.test.ts(x)`, excluding `*.integration.test.ts(x)`, run via `npm run test:unit`.
 * Integration tests — exercise real wiring across a boundary (WebFlux/WebSocket endpoints, real component trees).
-  * Backend: JUnit 5 tests tagged `@Tag("integration")`, run via the Gradle `integrationTest` task.
+  * Backend: JUnit 5 tests tagged `@Tag("integration")`, run via the Gradle `integrationTest` task. Tests that need real infrastructure (starting with PostgreSQL from MVP 0.4) use Testcontainers rather than mocks. GitHub Actions' `ubuntu-latest` runners have Docker preinstalled, so this needs no CI workflow changes.
   * Frontend: Vitest files matching `*.integration.test.ts(x)`, run via `npm run test:integration`.
 
 There is no end-to-end tier yet. Add one only when there's a real UI worth exercising that way.
