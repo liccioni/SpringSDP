@@ -21,16 +21,13 @@ docs/       architecture, protocol, roadmap, and decision records
 ### Docker Compose
 
 ```sh
-cd backend && ./gradlew jibDockerBuild && cd ..   # builds the backend image (once, or after backend changes)
-docker compose up --build                         # starts both services, rebuilding the frontend image first
+./startUpDocker.sh   # builds the backend + frontend images, starts both containers, opens http://localhost:5173
+./stopAllDocker.sh   # stops and removes the containers
 ```
 
-Open http://localhost:5173. The backend is reachable directly at `ws://localhost:8080/ws`.
+The backend is reachable directly at `ws://localhost:8080/ws`.
 
-Two caveats, both because Compose only builds an image automatically when one doesn't exist yet — it never checks whether the source changed:
-
-* `docker compose up` alone won't pick up **backend** code changes — Compose can't build the backend image itself, since it's built via [Jib](docs/decisions/0005-jib-for-backend-image.md) rather than a Dockerfile (see [ADR 0006](docs/decisions/0006-hello-world-walking-skeleton.md)). Re-run `jibDockerBuild` after backend changes, then `docker compose up` again.
-* `docker compose up` alone also won't pick up **frontend** code changes, even though the frontend has a real Dockerfile — Compose reuses whatever `springsdp-frontend` image already exists rather than rebuilding it. Always pass `--build` (as above) to force a rebuild, or the frontend container will keep serving an old bundle indefinitely.
+`startUpDocker.sh` always rebuilds both images before starting, which avoids two easy-to-hit caveats of running `docker compose up` by hand: Compose can't build the backend image itself, since it's built via [Jib](docs/decisions/0005-jib-for-backend-image.md) rather than a Dockerfile (see [ADR 0006](docs/decisions/0006-hello-world-walking-skeleton.md)) — the script runs `jibDockerBuild` first; and Compose otherwise reuses whatever frontend image already exists rather than rebuilding it, which is why the script always passes `--build`.
 
 ### Without Docker
 
