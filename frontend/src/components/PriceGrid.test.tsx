@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { render, screen, waitFor } from '@testing-library/react'
+import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Server, WebSocket as MockWebSocket } from 'mock-socket'
 import PriceGrid from './PriceGrid'
@@ -116,6 +116,34 @@ describe('PriceGrid', () => {
     expect(JSON.parse(received!)).toEqual({
       type: 'CREATE_TRADE',
       payload: { symbol: 'AUD/USD', side: 'BUY', price: 0.6603, quantity: 1_000_000 },
+    })
+  })
+
+  it('sends a CREATE_TRADE with the entered quantity when the quantity input has been changed', async () => {
+    let received: string | undefined
+    mockServer.on('connection', (socket) => {
+      socket.on('message', (message) => {
+        received = message as string
+      })
+      socket.send(
+        JSON.stringify({
+          type: 'PRICE_TICK',
+          payload: { symbol: 'EUR/GBP', bid: 0.855, ask: 0.8552, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid />)
+    const quantityInput = screen.getByLabelText('Quantity')
+    fireEvent.change(quantityInput, { target: { value: '250000' } })
+
+    const askCell = await screen.findByText('0.8552')
+    await userEvent.dblClick(askCell)
+
+    await waitFor(() => expect(received).toBeDefined())
+    expect(JSON.parse(received!)).toEqual({
+      type: 'CREATE_TRADE',
+      payload: { symbol: 'EUR/GBP', side: 'BUY', price: 0.8552, quantity: 250_000 },
     })
   })
 

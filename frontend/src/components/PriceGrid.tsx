@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import {
   AllCommunityModule,
@@ -14,9 +14,9 @@ import type { Side, TradeRequest } from '../types/tradeRequest'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
-// No quantity entry or buy/sell ticket yet (MVP 0.2, issues #13/#14), so a
-// double-click deals a fixed quantity at the clicked price: hitting the bid
-// sells, lifting the ask buys.
+// No explicit buy/sell ticket yet (MVP 0.2 issue #14), so a double-click
+// deals the entered quantity at the clicked price: hitting the bid sells,
+// lifting the ask buys.
 const DEFAULT_QUANTITY = 1_000_000
 const SIDE_BY_FIELD: Partial<Record<keyof PriceTick, Side>> = { bid: 'SELL', ask: 'BUY' }
 
@@ -32,6 +32,7 @@ function getRowId(params: GetRowIdParams<PriceTick>) {
 
 function PriceGrid() {
   const [prices, setPrices] = useState<Record<string, PriceTick>>({})
+  const [quantity, setQuantity] = useState<number>(DEFAULT_QUANTITY)
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -59,13 +60,34 @@ function PriceGrid() {
       symbol: event.data.symbol,
       side,
       price: event.data[field] as number,
-      quantity: DEFAULT_QUANTITY,
+      quantity,
     }
     socketRef.current?.send(JSON.stringify({ type: 'CREATE_TRADE', payload: request }))
   }
 
+  function handleQuantityChanged(event: ChangeEvent<HTMLInputElement>) {
+    const parsed = Number(event.target.value)
+    if (!Number.isNaN(parsed)) {
+      setQuantity(parsed)
+    }
+  }
+
   return (
     <div className="panel__grid">
+      <div className="trade-ticket">
+        <label htmlFor="quantity" className="trade-ticket__label">
+          Quantity
+        </label>
+        <input
+          id="quantity"
+          type="number"
+          min={0}
+          step={1}
+          className="trade-ticket__quantity"
+          value={quantity}
+          onChange={handleQuantityChanged}
+        />
+      </div>
       <AgGridReact<PriceTick>
         theme={tradingTheme}
         rowData={rowData}
