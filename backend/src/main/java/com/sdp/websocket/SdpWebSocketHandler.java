@@ -17,16 +17,21 @@ import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
 
 /**
  * Sends a HELLO envelope on connect, then streams EventBus events and handles
- * incoming CREATE_TRADE/SUBSCRIBE/UNSUBSCRIBE envelopes for the session's
- * lifetime. Doesn't know or care which service published an event.
+ * incoming CREATE_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY envelopes for
+ * the session's lifetime. Doesn't know or care which service published an
+ * event.
  *
  * Each connection starts subscribed to no symbols, so PRICE_TICK delivery is
  * scoped to that connection's own subscriptions via SUBSCRIBE/UNSUBSCRIBE.
  * TRADE_CREATED and TRADE_REJECTED are unaffected and stay broadcast to every
- * session, per docs/protocol.md.
+ * session, per docs/protocol.md. TRADE_HISTORY is different again: it's a
+ * targeted reply to that connection's own GET_TRADE_HISTORY request, sent
+ * only to the requesting connection via its own per-connection sink rather
+ * than the shared, broadcast EventBus.
  */
 @Component
 public class SdpWebSocketHandler implements WebSocketHandler {
@@ -44,6 +49,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	@Override
 	public Mono<Void> handle(WebSocketSession session) {
 		Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
+		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
 		Mono<WebSocketMessage> hello = toMessage(session, new Envelope("HELLO", "Hello from the SDP backend!"));
 
@@ -52,11 +58,14 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.map(event -> new Envelope(event.eventType(), event))
 				.concatMap(envelope -> toMessage(session, envelope));
 
-		Flux<WebSocketMessage> outbound = hello.concatWith(events);
+		Flux<WebSocketMessage> direct = directMessages.asFlux()
+				.concatMap(envelope -> toMessage(session, envelope));
+
+		Flux<WebSocketMessage> outbound = hello.concatWith(events).mergeWith(direct);
 
 		Mono<Void> inbound = session.receive()
 				.map(WebSocketMessage::getPayloadAsText)
-				.flatMap(text -> handleIncoming(text, subscribedSymbols))
+				.flatMap(text -> handleIncoming(text, subscribedSymbols, directMessages))
 				.then();
 
 		return session.send(outbound).and(inbound);
@@ -73,12 +82,13 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.map(session::textMessage);
 	}
 
-	private Mono<Void> handleIncoming(String text, Set<String> subscribedSymbols) {
+	private Mono<Void> handleIncoming(String text, Set<String> subscribedSymbols, Sinks.Many<Envelope> directMessages) {
 		Envelope envelope = objectMapper.readValue(text, Envelope.class);
 		return switch (envelope.type()) {
 			case "CREATE_TRADE" -> handleCreateTrade(envelope);
 			case "SUBSCRIBE" -> handleSubscribe(envelope, subscribedSymbols);
 			case "UNSUBSCRIBE" -> handleUnsubscribe(envelope, subscribedSymbols);
+			case "GET_TRADE_HISTORY" -> handleGetTradeHistory(directMessages);
 			default -> Mono.empty();
 		};
 	}
@@ -100,5 +110,21 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 	private String readSymbol(Envelope envelope) {
 		return objectMapper.convertValue(envelope.payload(), SubscriptionRequest.class).symbol();
+	}
+
+	private Mono<Void> handleGetTradeHistory(Sinks.Many<Envelope> directMessages) {
+		return tradeService.history()
+				.collectList()
+				.doOnNext(trades -> emitDirect(directMessages, new Envelope("TRADE_HISTORY", trades)))
+				.then();
+	}
+
+	// Sinks.Many requires the caller to serialize emissions (same reason as
+	// EventBus.publish()); lock on the sink itself since each connection owns
+	// its own instance.
+	private void emitDirect(Sinks.Many<Envelope> directMessages, Envelope envelope) {
+		synchronized (directMessages) {
+			directMessages.tryEmitNext(envelope);
+		}
 	}
 }

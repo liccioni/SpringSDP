@@ -11,12 +11,14 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 * PRICE_TICK
 * TRADE_CREATED
 * TRADE_REJECTED
+* TRADE_HISTORY — payload: an array of `Trade`, oldest first. Sent only to the connection that requested it, in reply to `GET_TRADE_HISTORY`; never broadcast.
 
 ## Client → server
 
 * CREATE_TRADE
 * SUBSCRIBE — payload `{ "symbol": "EUR/USD" }`. Starts delivery of `PRICE_TICK` for that symbol to this connection.
 * UNSUBSCRIBE — same payload shape. Stops delivery of `PRICE_TICK` for that symbol to this connection.
+* GET_TRADE_HISTORY — no payload. Answered with a `TRADE_HISTORY` envelope.
 
 ⸻
 
@@ -25,6 +27,8 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 `TRADE_CREATED` and `TRADE_REJECTED` are broadcast to every connected session — there's no per-session concept yet (that lands in MVP 0.5, see [roadmap.md](roadmap.md)). A rejection is only meaningful to the session that submitted the trade, so once sessions exist, whether `TRADE_REJECTED` (and any future submitter-only event) becomes targeted delivery instead of a broadcast is a decision to make then, not assumed here.
 
 `PRICE_TICK` is the exception: a connection receives no price ticks at all until it sends `SUBSCRIBE` for a symbol, and stops receiving ticks for a symbol once it sends `UNSUBSCRIBE`. This is connection-local filtering inside `SdpWebSocketHandler`, not the session concept referenced above — there's no session identity, registry, or addressing from outside the connection's own `handle()` call, and subscriptions don't survive a reconnect. See [ADR 0013](decisions/0013-subscription-default-nothing-until-subscribed.md) for why "nothing until subscribed" was chosen over defaulting to broadcast-all-narrowed-by-unsubscribe.
+
+`TRADE_HISTORY` is neither broadcast nor subscription-filtered: it's a direct reply to one connection's own request, delivered through that connection's own per-connection sink rather than the shared `EventBus`. Unlike `PRICE_TICK`'s subscription state, this isn't connection-local *filtering* of a shared stream — no other connection ever sees a `TRADE_HISTORY` message that wasn't theirs to begin with.
 
 ⸻
 
