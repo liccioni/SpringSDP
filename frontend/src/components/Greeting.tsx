@@ -14,7 +14,12 @@ function Greeting() {
     return () => socket.close()
   }, [])
 
-  return <p>{message ?? 'Waiting for backend…'}</p>
+  return (
+    <div className="status-pill" data-live={message !== null}>
+      <span className="status-dot" aria-hidden="true" />
+      <span>{message ?? 'Waiting for backend…'}</span>
+    </div>
+  )
 }
 
 export default Greeting

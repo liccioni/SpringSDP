@@ -8,6 +8,7 @@ import {
   type GetRowIdParams,
 } from 'ag-grid-community'
 import { connect } from '../services/socket'
+import { tradingTheme } from '../theme/tradingTheme'
 import type { PriceTick } from '../types/priceTick'
 import type { Side, TradeRequest } from '../types/tradeRequest'
 
@@ -20,9 +21,9 @@ const DEFAULT_QUANTITY = 1_000_000
 const SIDE_BY_FIELD: Partial<Record<keyof PriceTick, Side>> = { bid: 'SELL', ask: 'BUY' }
 
 const columnDefs: ColDef<PriceTick>[] = [
-  { field: 'symbol', headerName: 'Symbol' },
-  { field: 'bid', headerName: 'Bid' },
-  { field: 'ask', headerName: 'Ask' },
+  { field: 'symbol', headerName: 'Symbol', cellClass: 'cell-symbol', flex: 1 },
+  { field: 'bid', headerName: 'Bid', type: 'rightAligned', enableCellChangeFlash: true, flex: 1 },
+  { field: 'ask', headerName: 'Ask', type: 'rightAligned', enableCellChangeFlash: true, flex: 1 },
 ]
 
 function getRowId(params: GetRowIdParams<PriceTick>) {
@@ -64,12 +65,15 @@ function PriceGrid() {
   }
 
   return (
-    <div style={{ width: 600 }}>
+    <div className="panel__grid">
       <AgGridReact<PriceTick>
+        theme={tradingTheme}
         rowData={rowData}
         columnDefs={columnDefs}
         getRowId={getRowId}
         domLayout="autoHeight"
+        cellFlashDuration={150}
+        cellFadeDuration={350}
         onCellDoubleClicked={handleCellDoubleClicked}
       />
     </div>
