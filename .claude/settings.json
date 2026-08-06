@@ -1,5 +1,18 @@
 {
   "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "jq -cn '{hookSpecificOutput:{hookEventName:\"SessionStart\",additionalContext:\"New session started for the SDP project. Before addressing the incoming request, invoke the project-status skill, report current milestone progress and the next 5 tasks, then continue with the request as asked.\"}}'",
+            "timeout": 10,
+            "statusMessage": "Checking project status..."
+          }
+        ]
+      }
+    ],
     "PostToolUse": [
       {
         "matcher": "Edit|Write",
@@ -25,5 +38,9 @@
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "frontend-design@claude-plugins-official": true
   }
 }
