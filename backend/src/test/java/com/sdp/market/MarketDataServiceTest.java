@@ -1,6 +1,7 @@
 package com.sdp.market;
 
 import com.sdp.common.PriceTick;
+import com.sdp.eventbus.EventBus;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -17,7 +18,7 @@ class MarketDataServiceTest {
 
     private static final Set<String> KNOWN_SYMBOLS = Set.of("EUR/USD", "GBP/USD", "USD/JPY");
 
-    private final MarketDataService service = new MarketDataService();
+    private final MarketDataService service = new MarketDataService(new EventBus());
 
     @Test
     void streamsOneTickPerSymbolOnEachInterval() {

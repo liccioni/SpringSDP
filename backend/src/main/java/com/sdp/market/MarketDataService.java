@@ -1,6 +1,7 @@
 package com.sdp.market;
 
 import com.sdp.common.PriceTick;
+import com.sdp.eventbus.EventBus;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
@@ -11,12 +12,14 @@ import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
+import jakarta.annotation.PostConstruct;
 import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
 
 /**
- * Generates simulated FX price ticks on a fixed interval. Does not create trades.
+ * Generates simulated FX price ticks on a fixed interval and publishes each one to
+ * the EventBus. Does not create trades.
  */
 @Service
 public class MarketDataService {
@@ -31,12 +34,25 @@ public class MarketDataService {
     private static final int SCALE = 4;
 
     private final Map<String, BigDecimal> midPrices = new ConcurrentHashMap<>(BASE_PRICES);
+    private final EventBus eventBus;
+
+    public MarketDataService(EventBus eventBus) {
+        this.eventBus = eventBus;
+    }
+
+    // Started by Spring after construction, not from the constructor itself, so a
+    // plain `new MarketDataService(eventBus)` in a unit test stays side-effect-free
+    // and tests can still call priceTicks() directly under virtual time.
+    @PostConstruct
+    void startPublishing() {
+        priceTicks().subscribe(eventBus::publish);
+    }
 
     public Set<String> symbols() {
         return BASE_PRICES.keySet();
     }
 
-    public Flux<PriceTick> priceTicks() {
+    Flux<PriceTick> priceTicks() {
         return Flux.interval(TICK_INTERVAL)
                 .flatMap(tick -> Flux.fromIterable(midPrices.keySet()))
                 .map(this::nextTick);
