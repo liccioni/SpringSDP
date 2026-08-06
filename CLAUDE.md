@@ -55,7 +55,7 @@ Domain boundaries matter from the beginning.
 
 ## Current milestone
 
-MVP 0.2 — trading flow: quantity entry, buy/sell actions, execution confirmations, and trade validation, building on MVP 0.1's streaming skeleton (done — see [retro 0001](docs/retros/0001-mvp-0.1.md)). Full definition and the milestones beyond it are in [Roadmap](docs/roadmap.md).
+MVP 0.3 — reactive architecture: an internal event bus, fully reactive services, subscription management, and improved reactive state handling, building on MVP 0.2's trading flow (done — see [retro 0002](docs/retros/0002-mvp-0.2.md)). Full definition and the milestones beyond it are in [Roadmap](docs/roadmap.md).
 
 ⸻
 

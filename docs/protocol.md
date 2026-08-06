@@ -18,6 +18,12 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 ⸻
 
+## Broadcast semantics
+
+Every server → client event, including `TRADE_REJECTED`, is broadcast to every connected session — there's no per-session concept yet (that lands in MVP 0.5, see [roadmap.md](roadmap.md)). A rejection is only meaningful to the session that submitted the trade, so once sessions exist, whether `TRADE_REJECTED` (and any future submitter-only event) becomes targeted delivery instead of a broadcast is a decision to make then, not assumed here.
+
+⸻
+
 ## Endpoint
 
 The backend exposes a single WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type.

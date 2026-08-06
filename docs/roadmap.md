@@ -26,7 +26,9 @@ Scope:
 
 ⸻
 
-## MVP 0.2 – Trading flow
+## MVP 0.2 – Trading flow ✅ Done
+
+See [retro 0002](retros/0002-mvp-0.2.md) for what shipped, what was verified, and what was learned.
 
 * quantity entry
 * buy/sell actions

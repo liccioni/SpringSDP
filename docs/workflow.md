@@ -44,6 +44,8 @@ Every change, including changes to CLAUDE.md, goes through a pull request into `
 * Required CI checks must be green before merge.
 * No mandatory human approval while the project has a single maintainer. Self-merge once CI passes.
 * Squash merge only. The source branch is deleted on merge.
+* If issue N+1 depends on issue N's still-unmerged code, it's fine to branch N+1 off N's branch rather than `main` — but once N is squash-merged, N+1's base retarget to `main` will show a conflict, since the squash commit shares no history with N's original commits. Fix it with `git rebase origin/main` on N+1's branch (git recognizes the content as already upstream and drops those commits automatically) and force-push, rather than trying to resolve the conflict by hand.
+* `gh pr edit` (e.g. `--base`, `--body`) on this repo sometimes surfaces `GraphQL: Projects (classic) is being deprecated...` — this is unrelated to the edit and can be ignored; the edit still goes through. Verify with `gh pr view <N>` if in doubt.
 
 ⸻
 
