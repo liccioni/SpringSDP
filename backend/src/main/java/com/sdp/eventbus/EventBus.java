@@ -19,8 +19,18 @@ public class EventBus {
     // terminate just because the last one (e.g. a disconnecting WebSocket) cancels.
     private final Sinks.Many<DomainEvent> events = Sinks.many().multicast().onBackpressureBuffer(Queues.SMALL_BUFFER_SIZE, false);
 
+    // Sinks.Many requires the caller to serialize emissions: MarketDataService
+    // publishes from its own ticker thread while TradeService publishes from
+    // whichever WebSocket connection thread handled a CREATE_TRADE, so concurrent
+    // publish() calls are the normal case, not an edge case. Without this lock,
+    // tryEmitNext detects the concurrent access and silently drops the event
+    // instead of delivering it.
+    private final Object emitLock = new Object();
+
     public void publish(DomainEvent event) {
-        events.tryEmitNext(event);
+        synchronized (emitLock) {
+            events.tryEmitNext(event);
+        }
     }
 
     public Flux<DomainEvent> events() {
