@@ -66,6 +66,29 @@ describe('ExecutionConfirmation', () => {
     expect(confirmation).toHaveClass('execution-confirmation--sell')
   })
 
+  it('shows a rejection with the reason when a trade is rejected', async () => {
+    mockServer.on('connection', (socket) => {
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_REJECTED',
+          payload: {
+            symbol: 'XAU/USD',
+            side: 'BUY',
+            price: 2000,
+            quantity: 100,
+            reason: 'unknown symbol: XAU/USD',
+          },
+        }),
+      )
+    })
+
+    render(<ExecutionConfirmation />)
+
+    const rejection = await screen.findByRole('alert')
+    expect(rejection).toHaveTextContent('Rejected: BUY 100 XAU/USD @ 2000 — unknown symbol: XAU/USD')
+    expect(rejection).toHaveClass('execution-confirmation--rejected')
+  })
+
   it('renders nothing until a trade has been confirmed', () => {
     mockServer.on('connection', (socket) => {
       socket.send(JSON.stringify({ type: 'PRICE_TICK', payload: { symbol: 'NZD/USD', bid: 0.61, ask: 0.6102 } }))

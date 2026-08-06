@@ -7,6 +7,7 @@ import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -30,6 +31,10 @@ public class MarketDataService {
     private static final int SCALE = 4;
 
     private final Map<String, BigDecimal> midPrices = new ConcurrentHashMap<>(BASE_PRICES);
+
+    public Set<String> symbols() {
+        return BASE_PRICES.keySet();
+    }
 
     public Flux<PriceTick> priceTicks() {
         return Flux.interval(TICK_INTERVAL)

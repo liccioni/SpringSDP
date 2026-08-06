@@ -41,7 +41,11 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.map(trade -> new Envelope("TRADE_CREATED", trade))
 				.concatMap(envelope -> toMessage(session, envelope));
 
-		Flux<WebSocketMessage> outbound = hello.concatWith(Flux.merge(priceTicks, tradesCreated));
+		Flux<WebSocketMessage> tradesRejected = tradeService.tradeRejected()
+				.map(rejection -> new Envelope("TRADE_REJECTED", rejection))
+				.concatMap(envelope -> toMessage(session, envelope));
+
+		Flux<WebSocketMessage> outbound = hello.concatWith(Flux.merge(priceTicks, tradesCreated, tradesRejected));
 
 		Mono<Void> inbound = session.receive()
 				.map(WebSocketMessage::getPayloadAsText)

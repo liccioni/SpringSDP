@@ -10,6 +10,7 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 * PRICE_TICK
 * TRADE_CREATED
+* TRADE_REJECTED
 
 ## Client → server
 
