@@ -69,7 +69,7 @@ describe('PriceGrid', () => {
     expect(screen.queryByRole('row', { name: /hi/i })).not.toBeInTheDocument()
   })
 
-  it('sends a SELL CREATE_TRADE at the bid price when the bid cell is double-clicked', async () => {
+  it('sends a SELL CREATE_TRADE at the bid price when the Sell button is clicked', async () => {
     let received: string | undefined
     mockServer.on('connection', (socket) => {
       socket.on('message', (message) => {
@@ -84,8 +84,8 @@ describe('PriceGrid', () => {
     })
 
     render(<PriceGrid />)
-    const bidCell = await screen.findByText('0.9123')
-    await userEvent.dblClick(bidCell)
+    await screen.findByText('USD/CHF')
+    await userEvent.click(screen.getByRole('button', { name: 'Sell' }))
 
     await waitFor(() => expect(received).toBeDefined())
     expect(JSON.parse(received!)).toEqual({
@@ -94,7 +94,7 @@ describe('PriceGrid', () => {
     })
   })
 
-  it('sends a BUY CREATE_TRADE at the ask price when the ask cell is double-clicked', async () => {
+  it('sends a BUY CREATE_TRADE at the ask price when the Buy button is clicked', async () => {
     let received: string | undefined
     mockServer.on('connection', (socket) => {
       socket.on('message', (message) => {
@@ -109,8 +109,8 @@ describe('PriceGrid', () => {
     })
 
     render(<PriceGrid />)
-    const askCell = await screen.findByText('0.6603')
-    await userEvent.dblClick(askCell)
+    await screen.findByText('AUD/USD')
+    await userEvent.click(screen.getByRole('button', { name: 'Buy' }))
 
     await waitFor(() => expect(received).toBeDefined())
     expect(JSON.parse(received!)).toEqual({
@@ -137,35 +137,13 @@ describe('PriceGrid', () => {
     const quantityInput = screen.getByLabelText('Quantity')
     fireEvent.change(quantityInput, { target: { value: '250000' } })
 
-    const askCell = await screen.findByText('0.8552')
-    await userEvent.dblClick(askCell)
+    await screen.findByText('EUR/GBP')
+    await userEvent.click(screen.getByRole('button', { name: 'Buy' }))
 
     await waitFor(() => expect(received).toBeDefined())
     expect(JSON.parse(received!)).toEqual({
       type: 'CREATE_TRADE',
       payload: { symbol: 'EUR/GBP', side: 'BUY', price: 0.8552, quantity: 250_000 },
     })
-  })
-
-  it('does not send a trade when the symbol cell is double-clicked', async () => {
-    let received: string | undefined
-    mockServer.on('connection', (socket) => {
-      socket.on('message', (message) => {
-        received = message as string
-      })
-      socket.send(
-        JSON.stringify({
-          type: 'PRICE_TICK',
-          payload: { symbol: 'NZD/USD', bid: 0.61, ask: 0.6102, timestamp: '2026-01-01T00:00:00Z' },
-        }),
-      )
-    })
-
-    render(<PriceGrid />)
-    const symbolCell = await screen.findByText('NZD/USD')
-    await userEvent.dblClick(symbolCell)
-
-    await new Promise((resolve) => setTimeout(resolve, 100))
-    expect(received).toBeUndefined()
   })
 })

@@ -18,7 +18,7 @@ function App() {
         <section className="panel" aria-label="Rates">
           <h2 className="panel__title">Rates</h2>
           <PriceGrid />
-          <p className="panel__hint">Double-click a bid to sell, an ask to buy.</p>
+          <p className="panel__hint">Set a quantity, then use Sell or Buy to deal at the shown price.</p>
         </section>
         <section className="panel" aria-label="Blotter">
           <h2 className="panel__title">Blotter</h2>
