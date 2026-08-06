@@ -34,11 +34,17 @@ npm run test:unit --prefix frontend && npm run test:integration --prefix fronten
 ```
 
 Then live-walk the exact user story in this milestone's
-[docs/roadmap.md](../../docs/roadmap.md) heading in a real browser: start the
-real backend and frontend, use the `claude-in-chrome` tools to perform the
-actual steps a user would (not just exercise the automated coverage). If
-anything in the story doesn't hold up, that's a real gap — fix it before
-writing a retrospective that claims otherwise.
+[docs/roadmap.md](../../docs/roadmap.md) heading in a real browser, through
+**every way of running the app the README documents** — not just whichever
+one is fastest to iterate on locally. This project's README currently
+documents two (local dev servers, and Docker Compose); verifying only the
+former is exactly how a stale, silently-reused Docker image serving an old
+frontend bundle went unnoticed through an entire retro (see the postscript on
+[retro 0001](../../docs/retros/0001-mvp-0.1.md)). Use the `claude-in-chrome`
+tools to perform the actual steps a user would, not just exercise the
+automated coverage. If anything in the story doesn't hold up on any
+documented path, that's a real gap — fix it before writing a retrospective
+that claims otherwise.
 
 ## 3. Audit ADR coverage
 

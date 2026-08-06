@@ -6,7 +6,7 @@ A modern FX single dealer platform built with Spring Boot WebFlux, raw WebSocket
 
 ## Status
 
-MVP 0.1 in progress: a minimal WebSocket "hello world" flows end-to-end from backend to frontend, dockerized. Work is tracked as [milestones and issues](https://github.com/liccioni/SpringSDP/milestones) on this repo, following the [Roadmap](docs/roadmap.md).
+MVP 0.1 done: live FX price ticks, double-click to create a trade, and a trade blotter, all flowing end-to-end over one WebSocket connection. See the [MVP 0.1 retro](docs/retros/0001-mvp-0.1.md) for what shipped. Currently on MVP 0.2 (trading flow). Work is tracked as [milestones and issues](https://github.com/liccioni/SpringSDP/milestones) on this repo, following the [Roadmap](docs/roadmap.md).
 
 ## Project layout
 
@@ -21,19 +21,22 @@ docs/       architecture, protocol, roadmap, and decision records
 ### Docker Compose
 
 ```sh
-./gradlew -p backend jibDockerBuild   # builds the backend image (once, or after backend changes)
-docker compose up                     # starts both services; rebuilds the frontend automatically
+cd backend && ./gradlew jibDockerBuild && cd ..   # builds the backend image (once, or after backend changes)
+docker compose up --build                         # starts both services, rebuilding the frontend image first
 ```
 
 Open http://localhost:5173. The backend is reachable directly at `ws://localhost:8080/ws`.
 
-Note: `docker compose up` alone won't pick up backend code changes — Compose can't build the backend image itself, since it's built via [Jib](docs/decisions/0005-jib-for-backend-image.md) rather than a Dockerfile (see [ADR 0006](docs/decisions/0006-hello-world-walking-skeleton.md)). Re-run `jibDockerBuild` after backend changes, then `docker compose up` again.
+Two caveats, both because Compose only builds an image automatically when one doesn't exist yet — it never checks whether the source changed:
+
+* `docker compose up` alone won't pick up **backend** code changes — Compose can't build the backend image itself, since it's built via [Jib](docs/decisions/0005-jib-for-backend-image.md) rather than a Dockerfile (see [ADR 0006](docs/decisions/0006-hello-world-walking-skeleton.md)). Re-run `jibDockerBuild` after backend changes, then `docker compose up` again.
+* `docker compose up` alone also won't pick up **frontend** code changes, even though the frontend has a real Dockerfile — Compose reuses whatever `springsdp-frontend` image already exists rather than rebuilding it. Always pass `--build` (as above) to force a rebuild, or the frontend container will keep serving an old bundle indefinitely.
 
 ### Without Docker
 
 ```sh
-./gradlew -p backend bootRun   # backend on :8080
-npm --prefix frontend run dev  # frontend on :5173
+cd backend && ./gradlew bootRun    # backend on :8080
+npm --prefix frontend run dev      # frontend on :5173
 ```
 
 ## Contributing
