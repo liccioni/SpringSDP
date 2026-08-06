@@ -42,7 +42,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		Mono<Void> inbound = session.receive()
 				.map(WebSocketMessage::getPayloadAsText)
-				.doOnNext(this::handleIncoming)
+				.flatMap(this::handleIncoming)
 				.then();
 
 		return session.send(outbound).and(inbound);
@@ -53,11 +53,12 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.map(session::textMessage);
 	}
 
-	private void handleIncoming(String text) {
+	private Mono<Void> handleIncoming(String text) {
 		Envelope envelope = objectMapper.readValue(text, Envelope.class);
-		if ("CREATE_TRADE".equals(envelope.type())) {
-			TradeRequest request = objectMapper.convertValue(envelope.payload(), TradeRequest.class);
-			tradeService.createTrade(request);
+		if (!"CREATE_TRADE".equals(envelope.type())) {
+			return Mono.empty();
 		}
+		TradeRequest request = objectMapper.convertValue(envelope.payload(), TradeRequest.class);
+		return tradeService.createTrade(request).then();
 	}
 }

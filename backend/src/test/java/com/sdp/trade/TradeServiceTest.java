@@ -6,7 +6,6 @@ import com.sdp.eventbus.EventBus;
 import com.sdp.market.MarketDataService;
 
 import java.math.BigDecimal;
-import java.util.Optional;
 
 import org.junit.jupiter.api.Test;
 
@@ -23,7 +22,7 @@ class TradeServiceTest {
     void createTradeStoresAndReturnsATrade() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
 
-        Trade trade = service.createTrade(request).orElseThrow();
+        Trade trade = service.createTrade(request).block();
 
         assertThat(trade.id()).isNotBlank();
         assertThat(trade.symbol()).isEqualTo("EUR/USD");
@@ -52,8 +51,8 @@ class TradeServiceTest {
     void eachTradeGetsAUniqueId() {
         TradeRequest request = new TradeRequest("USD/JPY", Side.BUY, new BigDecimal("149.50"), new BigDecimal("100000"));
 
-        Trade first = service.createTrade(request).orElseThrow();
-        Trade second = service.createTrade(request).orElseThrow();
+        Trade first = service.createTrade(request).block();
+        Trade second = service.createTrade(request).block();
 
         assertThat(first.id()).isNotEqualTo(second.id());
     }
@@ -62,9 +61,9 @@ class TradeServiceTest {
     void rejectsATradeWithNonPositiveQuantity() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("0"));
 
-        Optional<Trade> trade = service.createTrade(request);
+        Trade trade = service.createTrade(request).block();
 
-        assertThat(trade).isEmpty();
+        assertThat(trade).isNull();
         assertThat(service.blotter()).isEmpty();
     }
 
