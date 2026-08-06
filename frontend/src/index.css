@@ -238,6 +238,25 @@ body {
   animation: rowInsert 900ms ease-out;
 }
 
+.execution-confirmation {
+  margin: 0.6rem 0 0;
+  padding: 0.4rem 0.6rem;
+  font-family: var(--font-data);
+  font-size: 0.8rem;
+  border-radius: 3px;
+  animation: rise 200ms ease-out both;
+}
+
+.execution-confirmation--buy {
+  color: var(--buy);
+  background: rgba(52, 211, 153, 0.14);
+}
+
+.execution-confirmation--sell {
+  color: var(--sell);
+  background: rgba(248, 113, 113, 0.14);
+}
+
 @keyframes pulse {
   0%,
   100% {
