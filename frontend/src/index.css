@@ -140,6 +140,38 @@ body {
   width: 100%;
 }
 
+.trade-ticket {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.75rem;
+}
+
+.trade-ticket__label {
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.7rem;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.trade-ticket__quantity {
+  width: 8rem;
+  padding: 0.35rem 0.5rem;
+  font-family: var(--font-data);
+  font-size: 0.85rem;
+  color: var(--text);
+  background: var(--ink);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+}
+
+.trade-ticket__quantity:focus {
+  outline: 2px solid var(--amber);
+  outline-offset: 1px;
+}
+
 .panel__hint {
   margin: 0.75rem 0 0;
   font-size: 0.8rem;
