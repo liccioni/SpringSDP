@@ -1,6 +1,6 @@
 package com.sdp.websocket;
 
-import com.sdp.market.MarketDataService;
+import com.sdp.eventbus.EventBus;
 import com.sdp.trade.TradeRequest;
 import com.sdp.trade.TradeService;
 
@@ -13,19 +13,20 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Sends a HELLO envelope on connect, then streams PRICE_TICK and TRADE_CREATED
- * envelopes and handles incoming CREATE_TRADE envelopes for the session's lifetime.
+ * Sends a HELLO envelope on connect, then streams every EventBus event and
+ * handles incoming CREATE_TRADE envelopes for the session's lifetime. Doesn't
+ * know or care which service published an event.
  */
 @Component
 public class SdpWebSocketHandler implements WebSocketHandler {
 
 	private final ObjectMapper objectMapper;
-	private final MarketDataService marketDataService;
+	private final EventBus eventBus;
 	private final TradeService tradeService;
 
-	public SdpWebSocketHandler(ObjectMapper objectMapper, MarketDataService marketDataService, TradeService tradeService) {
+	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService) {
 		this.objectMapper = objectMapper;
-		this.marketDataService = marketDataService;
+		this.eventBus = eventBus;
 		this.tradeService = tradeService;
 	}
 
@@ -33,19 +34,11 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	public Mono<Void> handle(WebSocketSession session) {
 		Mono<WebSocketMessage> hello = toMessage(session, new Envelope("HELLO", "Hello from the SDP backend!"));
 
-		Flux<WebSocketMessage> priceTicks = marketDataService.priceTicks()
-				.map(tick -> new Envelope("PRICE_TICK", tick))
+		Flux<WebSocketMessage> events = eventBus.events()
+				.map(event -> new Envelope(event.eventType(), event))
 				.concatMap(envelope -> toMessage(session, envelope));
 
-		Flux<WebSocketMessage> tradesCreated = tradeService.tradeCreated()
-				.map(trade -> new Envelope("TRADE_CREATED", trade))
-				.concatMap(envelope -> toMessage(session, envelope));
-
-		Flux<WebSocketMessage> tradesRejected = tradeService.tradeRejected()
-				.map(rejection -> new Envelope("TRADE_REJECTED", rejection))
-				.concatMap(envelope -> toMessage(session, envelope));
-
-		Flux<WebSocketMessage> outbound = hello.concatWith(Flux.merge(priceTicks, tradesCreated, tradesRejected));
+		Flux<WebSocketMessage> outbound = hello.concatWith(events);
 
 		Mono<Void> inbound = session.receive()
 				.map(WebSocketMessage::getPayloadAsText)

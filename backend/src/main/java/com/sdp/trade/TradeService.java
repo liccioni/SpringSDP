@@ -1,6 +1,7 @@
 package com.sdp.trade;
 
 import com.sdp.common.Trade;
+import com.sdp.eventbus.EventBus;
 import com.sdp.market.MarketDataService;
 
 import java.time.Instant;
@@ -11,35 +12,28 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.springframework.stereotype.Service;
 
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Sinks;
-import reactor.util.concurrent.Queues;
-
 /**
  * Handles CREATE_TRADE requests: validates them, then either creates a Trade
- * and stores it in in-memory state, or rejects it with a reason. Emits both
- * outcomes for the WebSocket layer to broadcast as TRADE_CREATED /
- * TRADE_REJECTED. Does not generate prices.
+ * and stores it in in-memory state, or rejects it with a reason. Publishes
+ * both outcomes to the EventBus for the WebSocket layer to broadcast. Does
+ * not generate prices.
  */
 @Service
 public class TradeService {
 
     private final MarketDataService marketDataService;
+    private final EventBus eventBus;
     private final List<Trade> blotter = new CopyOnWriteArrayList<>();
 
-    // autoCancel=false: these sinks outlive any single WebSocket connection, so they must
-    // not terminate just because the last subscriber (a disconnecting client) cancels.
-    private final Sinks.Many<Trade> tradeCreated = Sinks.many().multicast().onBackpressureBuffer(Queues.SMALL_BUFFER_SIZE, false);
-    private final Sinks.Many<TradeRejected> tradeRejected = Sinks.many().multicast().onBackpressureBuffer(Queues.SMALL_BUFFER_SIZE, false);
-
-    public TradeService(MarketDataService marketDataService) {
+    public TradeService(MarketDataService marketDataService, EventBus eventBus) {
         this.marketDataService = marketDataService;
+        this.eventBus = eventBus;
     }
 
     public Optional<Trade> createTrade(TradeRequest request) {
         Optional<String> rejectionReason = validate(request);
         if (rejectionReason.isPresent()) {
-            tradeRejected.tryEmitNext(new TradeRejected(
+            eventBus.publish(new TradeRejected(
                     request.symbol(), request.side(), request.price(), request.quantity(), rejectionReason.get()));
             return Optional.empty();
         }
@@ -53,7 +47,7 @@ public class TradeService {
                 Instant.now());
 
         blotter.add(trade);
-        tradeCreated.tryEmitNext(trade);
+        eventBus.publish(trade);
         return Optional.of(trade);
     }
 
@@ -69,13 +63,5 @@ public class TradeService {
 
     public List<Trade> blotter() {
         return List.copyOf(blotter);
-    }
-
-    public Flux<Trade> tradeCreated() {
-        return tradeCreated.asFlux();
-    }
-
-    public Flux<TradeRejected> tradeRejected() {
-        return tradeRejected.asFlux();
     }
 }

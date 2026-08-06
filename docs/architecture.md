@@ -58,7 +58,7 @@ Examples:
 * CREATE_TRADE
 * TRADE_CREATED
 
-This allows future integration with Redis Pub/Sub or Kafka with minimal protocol changes. See [ADR 0010](decisions/0010-event-driven-protocol.md).
+This allows future integration with Redis Pub/Sub or Kafka with minimal protocol changes. See [ADR 0010](decisions/0010-event-driven-protocol.md) for the wire protocol this produces, and [ADR 0012](decisions/0012-in-process-event-bus.md) for the in-process event bus that backs it — domain services publish events, the WebSocket layer only subscribes and dispatches generically.
 
 ### Separation of concerns
 
@@ -80,6 +80,8 @@ UI (React + AG Grid)
     WebSocket
         |
 Spring WebFlux
+        |
+    EventBus
      /     \
 MarketData  TradeService
    Service
@@ -120,6 +122,7 @@ Side
 backend/
   config/
   websocket/
+  eventbus/
   market/
   trade/
   common/
