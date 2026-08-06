@@ -12,11 +12,15 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.springframework.stereotype.Service;
 
+import reactor.core.publisher.Mono;
+
 /**
  * Handles CREATE_TRADE requests: validates them, then either creates a Trade
  * and stores it in in-memory state, or rejects it with a reason. Publishes
  * both outcomes to the EventBus for the WebSocket layer to broadcast. Does
- * not generate prices.
+ * not generate prices. Returns Mono<Trade> rather than a plain value so
+ * callers compose it into a reactive pipeline without changes once trade
+ * creation involves real I/O (e.g. persistence in MVP 0.4).
  */
 @Service
 public class TradeService {
@@ -30,14 +34,16 @@ public class TradeService {
         this.eventBus = eventBus;
     }
 
-    public Optional<Trade> createTrade(TradeRequest request) {
+    public Mono<Trade> createTrade(TradeRequest request) {
         Optional<String> rejectionReason = validate(request);
         if (rejectionReason.isPresent()) {
-            eventBus.publish(new TradeRejected(
-                    request.symbol(), request.side(), request.price(), request.quantity(), rejectionReason.get()));
-            return Optional.empty();
+            publishRejection(request, rejectionReason.get());
+            return Mono.empty();
         }
+        return Mono.just(executeTrade(request));
+    }
 
+    private Trade executeTrade(TradeRequest request) {
         Trade trade = new Trade(
                 UUID.randomUUID().toString(),
                 request.symbol(),
@@ -48,7 +54,11 @@ public class TradeService {
 
         blotter.add(trade);
         eventBus.publish(trade);
-        return Optional.of(trade);
+        return trade;
+    }
+
+    private void publishRejection(TradeRequest request, String reason) {
+        eventBus.publish(new TradeRejected(request.symbol(), request.side(), request.price(), request.quantity(), reason));
     }
 
     private Optional<String> validate(TradeRequest request) {
