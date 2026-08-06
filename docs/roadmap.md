@@ -37,7 +37,9 @@ See [retro 0002](retros/0002-mvp-0.2.md) for what shipped, what was verified, an
 
 ⸻
 
-## MVP 0.3 – Reactive architecture
+## MVP 0.3 – Reactive architecture ✅ Done
+
+See [retro 0003](retros/0003-mvp-0.3.md) for what shipped, what was verified, and what was learned.
 
 * event bus
 * reactive services

@@ -55,7 +55,7 @@ Domain boundaries matter from the beginning.
 
 ## Current milestone
 
-MVP 0.3 — reactive architecture: an internal event bus, fully reactive services, subscription management, and improved reactive state handling, building on MVP 0.2's trading flow (done — see [retro 0002](docs/retros/0002-mvp-0.2.md)). Full definition and the milestones beyond it are in [Roadmap](docs/roadmap.md).
+MVP 0.4 — persistence: PostgreSQL, R2DBC, trade history, and application restart recovery, building on MVP 0.3's reactive architecture (done — see [retro 0003](docs/retros/0003-mvp-0.3.md)). Full definition and the milestones beyond it are in [Roadmap](docs/roadmap.md).
 
 ⸻
 
