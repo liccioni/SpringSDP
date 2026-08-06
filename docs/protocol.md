@@ -15,12 +15,16 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 ## Client → server
 
 * CREATE_TRADE
+* SUBSCRIBE — payload `{ "symbol": "EUR/USD" }`. Starts delivery of `PRICE_TICK` for that symbol to this connection.
+* UNSUBSCRIBE — same payload shape. Stops delivery of `PRICE_TICK` for that symbol to this connection.
 
 ⸻
 
 ## Broadcast semantics
 
-Every server → client event, including `TRADE_REJECTED`, is broadcast to every connected session — there's no per-session concept yet (that lands in MVP 0.5, see [roadmap.md](roadmap.md)). A rejection is only meaningful to the session that submitted the trade, so once sessions exist, whether `TRADE_REJECTED` (and any future submitter-only event) becomes targeted delivery instead of a broadcast is a decision to make then, not assumed here.
+`TRADE_CREATED` and `TRADE_REJECTED` are broadcast to every connected session — there's no per-session concept yet (that lands in MVP 0.5, see [roadmap.md](roadmap.md)). A rejection is only meaningful to the session that submitted the trade, so once sessions exist, whether `TRADE_REJECTED` (and any future submitter-only event) becomes targeted delivery instead of a broadcast is a decision to make then, not assumed here.
+
+`PRICE_TICK` is the exception: a connection receives no price ticks at all until it sends `SUBSCRIBE` for a symbol, and stops receiving ticks for a symbol once it sends `UNSUBSCRIBE`. This is connection-local filtering inside `SdpWebSocketHandler`, not the session concept referenced above — there's no session identity, registry, or addressing from outside the connection's own `handle()` call, and subscriptions don't survive a reconnect.
 
 ⸻
 
