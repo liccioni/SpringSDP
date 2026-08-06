@@ -1,8 +1,214 @@
 :root {
-  color-scheme: light dark;
-  font: 16px/1.5 system-ui, 'Segoe UI', Roboto, sans-serif;
+  color-scheme: dark;
+
+  --ink: #0a0d10;
+  --panel: #12171c;
+  --hairline: #202830;
+  --amber: #f5a623;
+  --amber-dim: #c7ae7c;
+  --buy: #34d399;
+  --sell: #f87171;
+  --text: #e7ecf0;
+  --text-dim: #7c8894;
+
+  --font-display: 'IBM Plex Sans Condensed', system-ui, sans-serif;
+  --font-body: 'IBM Plex Sans', system-ui, sans-serif;
+  --font-data: 'IBM Plex Mono', ui-monospace, monospace;
+
+  font: 15px/1.5 var(--font-body);
+}
+
+* {
+  box-sizing: border-box;
 }
 
 body {
   margin: 0;
+  background: var(--ink);
+  color: var(--text);
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 2px;
+}
+
+.shell {
+  min-height: 100vh;
+  max-width: 1400px;
+  margin: 0 auto;
+  padding: 0 1.5rem 3rem;
+}
+
+.shell__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 1.5rem 0 1.25rem;
+  border-bottom: 1px solid var(--hairline);
+  margin-bottom: 1.75rem;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 0.75rem;
+}
+
+.brand__mark {
+  font-family: var(--font-data);
+  font-weight: 600;
+  font-size: 0.8rem;
+  letter-spacing: 0.1em;
+  color: var(--ink);
+  background: var(--amber);
+  padding: 0.2rem 0.45rem;
+  border-radius: 2px;
+}
+
+.brand__title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 1.05rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-dim);
+}
+
+.status-pill {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  font-family: var(--font-data);
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--text-dim);
+  flex-shrink: 0;
+}
+
+.status-pill[data-live='true'] .status-dot {
+  background: var(--amber);
+  animation: pulse 2s ease-in-out infinite;
+}
+
+.shell__body {
+  display: grid;
+  grid-template-columns: minmax(320px, 440px) 1fr;
+  gap: 1.5rem;
+  align-items: start;
+}
+
+@media (max-width: 900px) {
+  .shell__body {
+    grid-template-columns: 1fr;
+  }
+}
+
+.panel {
+  background: var(--panel);
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  padding: 1rem 1rem 1.25rem;
+  animation: rise 400ms ease-out both;
+}
+
+.shell__body .panel:nth-child(2) {
+  animation-delay: 80ms;
+}
+
+.panel__title {
+  margin: 0 0 0.75rem;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--amber-dim);
+  padding-bottom: 0.6rem;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.panel__grid {
+  width: 100%;
+}
+
+.panel__hint {
+  margin: 0.75rem 0 0;
+  font-size: 0.8rem;
+  color: var(--text-dim);
+}
+
+.cell-symbol {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+.side-badge {
+  display: inline-block;
+  font-family: var(--font-data);
+  font-weight: 600;
+  font-size: 0.75rem;
+  letter-spacing: 0.06em;
+  padding: 0.1rem 0.4rem;
+  border-radius: 2px;
+}
+
+.side-badge--buy {
+  color: var(--buy);
+  background: rgba(52, 211, 153, 0.14);
+}
+
+.side-badge--sell {
+  color: var(--sell);
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.trade-row--new {
+  animation: rowInsert 900ms ease-out;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes rowInsert {
+  from {
+    background-color: rgba(245, 166, 35, 0.28);
+  }
+  to {
+    background-color: transparent;
+  }
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .panel,
+  .status-pill[data-live='true'] .status-dot,
+  .trade-row--new {
+    animation: none;
+  }
 }

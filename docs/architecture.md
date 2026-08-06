@@ -127,6 +127,7 @@ backend/
 frontend/
   components/
   services/
+  theme/
   types/
   Dockerfile
 
