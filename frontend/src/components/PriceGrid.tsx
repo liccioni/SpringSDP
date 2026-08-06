@@ -16,6 +16,11 @@ ModuleRegistry.registerModules([AllCommunityModule])
 
 const DEFAULT_QUANTITY = 1_000_000
 
+// The backend now only streams PRICE_TICK for symbols a connection has subscribed
+// to. There's no symbol-discovery message yet, so this list must be kept in sync
+// with MarketDataService's tradable symbols on the backend.
+const KNOWN_SYMBOLS = ['EUR/USD', 'GBP/USD', 'USD/JPY']
+
 function getRowId(params: GetRowIdParams<PriceTick>) {
   return params.data.symbol
 }
@@ -26,12 +31,19 @@ function PriceGrid() {
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-    const socket = connect((envelope) => {
-      if (envelope.type === 'PRICE_TICK') {
-        const tick = envelope.payload as PriceTick
-        setPrices((current) => ({ ...current, [tick.symbol]: tick }))
-      }
-    })
+    const socket = connect(
+      (envelope) => {
+        if (envelope.type === 'PRICE_TICK') {
+          const tick = envelope.payload as PriceTick
+          setPrices((current) => ({ ...current, [tick.symbol]: tick }))
+        }
+      },
+      () => {
+        for (const symbol of KNOWN_SYMBOLS) {
+          socket.send(JSON.stringify({ type: 'SUBSCRIBE', payload: { symbol } }))
+        }
+      },
+    )
     socketRef.current = socket
 
     return () => socket.close()

@@ -31,4 +31,18 @@ describe('connect', () => {
 
     expect(received).toEqual({ type: 'HELLO', payload: 'hi' })
   })
+
+  it('invokes onOpen once the connection is established', async () => {
+    const opened = await new Promise((resolve) => {
+      const socket = connect(
+        () => {},
+        () => {
+          resolve(true)
+          socket.close()
+        },
+      )
+    })
+
+    expect(opened).toBe(true)
+  })
 })
