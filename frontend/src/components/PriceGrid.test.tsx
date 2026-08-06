@@ -73,7 +73,9 @@ describe('PriceGrid', () => {
     let received: string | undefined
     mockServer.on('connection', (socket) => {
       socket.on('message', (message) => {
-        received = message as string
+        if ((message as string).includes('CREATE_TRADE')) {
+          received = message as string
+        }
       })
       socket.send(
         JSON.stringify({
@@ -98,7 +100,9 @@ describe('PriceGrid', () => {
     let received: string | undefined
     mockServer.on('connection', (socket) => {
       socket.on('message', (message) => {
-        received = message as string
+        if ((message as string).includes('CREATE_TRADE')) {
+          received = message as string
+        }
       })
       socket.send(
         JSON.stringify({
@@ -119,11 +123,31 @@ describe('PriceGrid', () => {
     })
   })
 
+  it('subscribes to the known symbols once the connection opens', async () => {
+    const received: string[] = []
+    mockServer.on('connection', (socket) => {
+      socket.on('message', (message) => {
+        received.push(message as string)
+      })
+    })
+
+    render(<PriceGrid />)
+
+    await waitFor(() => expect(received).toHaveLength(3))
+    expect(received.map((message) => JSON.parse(message))).toEqual([
+      { type: 'SUBSCRIBE', payload: { symbol: 'EUR/USD' } },
+      { type: 'SUBSCRIBE', payload: { symbol: 'GBP/USD' } },
+      { type: 'SUBSCRIBE', payload: { symbol: 'USD/JPY' } },
+    ])
+  })
+
   it('sends a CREATE_TRADE with the entered quantity when the quantity input has been changed', async () => {
     let received: string | undefined
     mockServer.on('connection', (socket) => {
       socket.on('message', (message) => {
-        received = message as string
+        if ((message as string).includes('CREATE_TRADE')) {
+          received = message as string
+        }
       })
       socket.send(
         JSON.stringify({
