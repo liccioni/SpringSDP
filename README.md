@@ -6,7 +6,7 @@ A modern FX single dealer platform built with Spring Boot WebFlux, raw WebSocket
 
 ## Status
 
-MVP 0.1 done: live FX price ticks, double-click to create a trade, and a trade blotter, all flowing end-to-end over one WebSocket connection. See the [MVP 0.1 retro](docs/retros/0001-mvp-0.1.md) for what shipped. Currently on MVP 0.2 (trading flow). Work is tracked as [milestones and issues](https://github.com/liccioni/SpringSDP/milestones) on this repo, following the [Roadmap](docs/roadmap.md).
+MVP 0.1-0.3 done: streaming price ticks and trading flow (see the [MVP 0.1](docs/retros/0001-mvp-0.1.md)/[0.2](docs/retros/0002-mvp-0.2.md) retros) on top of a reactive, event-driven backend architecture (see the [MVP 0.3 retro](docs/retros/0003-mvp-0.3.md)). Currently on MVP 0.4 (persistence). Work is tracked as [milestones and issues](https://github.com/liccioni/SpringSDP/milestones) on this repo, following the [Roadmap](docs/roadmap.md).
 
 ## Project layout
 
@@ -32,9 +32,12 @@ The backend is reachable directly at `ws://localhost:8080/ws`.
 ### Without Docker
 
 ```sh
+docker compose up -d postgres      # backend needs Postgres reachable, even here
 cd backend && ./gradlew bootRun    # backend on :8080
 npm --prefix frontend run dev      # frontend on :5173
 ```
+
+Backend and frontend can run as native processes, but Postgres still runs via Docker Compose — see [ADR 0014](docs/decisions/0014-postgresql-r2dbc-connectivity.md) for why "without Docker" doesn't mean without Postgres.
 
 ## Contributing
 
