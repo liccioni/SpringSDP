@@ -101,7 +101,7 @@ body {
 
 .shell__body {
   display: grid;
-  grid-template-columns: minmax(320px, 440px) 1fr;
+  grid-template-columns: minmax(320px, 560px) 1fr;
   gap: 1.5rem;
   align-items: start;
 }
@@ -201,6 +201,37 @@ body {
 .side-badge--sell {
   color: var(--sell);
   background: rgba(248, 113, 113, 0.14);
+}
+
+.side-button {
+  width: 100%;
+  padding: 0.2rem 0;
+  font-family: var(--font-display);
+  font-weight: 600;
+  font-size: 0.72rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  border-radius: 2px;
+  border: 1px solid transparent;
+  cursor: pointer;
+}
+
+.side-button--sell {
+  color: var(--sell);
+  background: rgba(248, 113, 113, 0.14);
+}
+
+.side-button--sell:hover {
+  background: rgba(248, 113, 113, 0.24);
+}
+
+.side-button--buy {
+  color: var(--buy);
+  background: rgba(52, 211, 153, 0.14);
+}
+
+.side-button--buy:hover {
+  background: rgba(52, 211, 153, 0.24);
 }
 
 .trade-row--new {
