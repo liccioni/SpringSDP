@@ -1,3 +1,4 @@
+import ExecutionConfirmation from './components/ExecutionConfirmation'
 import Greeting from './components/Greeting'
 import PriceGrid from './components/PriceGrid'
 import TradeBlotter from './components/TradeBlotter'
@@ -18,6 +19,7 @@ function App() {
         <section className="panel" aria-label="Rates">
           <h2 className="panel__title">Rates</h2>
           <PriceGrid />
+          <ExecutionConfirmation />
           <p className="panel__hint">Set a quantity, then use Sell or Buy to deal at the shown price.</p>
         </section>
         <section className="panel" aria-label="Blotter">
