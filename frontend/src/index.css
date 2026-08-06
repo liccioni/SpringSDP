@@ -257,6 +257,11 @@ body {
   background: rgba(248, 113, 113, 0.14);
 }
 
+.execution-confirmation--rejected {
+  color: var(--amber);
+  background: rgba(245, 166, 35, 0.14);
+}
+
 @keyframes pulse {
   0%,
   100% {
