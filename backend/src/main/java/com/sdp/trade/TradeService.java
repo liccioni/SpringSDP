@@ -5,33 +5,31 @@ import com.sdp.eventbus.EventBus;
 import com.sdp.market.MarketDataService;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
-import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.springframework.stereotype.Service;
 
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 /**
- * Handles CREATE_TRADE requests: validates them, then either creates a Trade
- * and stores it in in-memory state, or rejects it with a reason. Publishes
- * both outcomes to the EventBus for the WebSocket layer to broadcast. Does
- * not generate prices. Returns Mono<Trade> rather than a plain value so
- * callers compose it into a reactive pipeline without changes once trade
- * creation involves real I/O (e.g. persistence in MVP 0.4).
+ * Handles CREATE_TRADE requests: validates them, then either persists a
+ * Trade via TradeRepository, or rejects it with a reason. Publishes both
+ * outcomes to the EventBus for the WebSocket layer to broadcast. Does not
+ * generate prices.
  */
 @Service
 public class TradeService {
 
     private final MarketDataService marketDataService;
     private final EventBus eventBus;
-    private final List<Trade> blotter = new CopyOnWriteArrayList<>();
+    private final TradeRepository tradeRepository;
 
-    public TradeService(MarketDataService marketDataService, EventBus eventBus) {
+    public TradeService(MarketDataService marketDataService, EventBus eventBus, TradeRepository tradeRepository) {
         this.marketDataService = marketDataService;
         this.eventBus = eventBus;
+        this.tradeRepository = tradeRepository;
     }
 
     public Mono<Trade> createTrade(TradeRequest request) {
@@ -40,21 +38,22 @@ public class TradeService {
             publishRejection(request, rejectionReason.get());
             return Mono.empty();
         }
-        return Mono.just(executeTrade(request));
+        return tradeRepository.save(buildTrade(request))
+                .doOnNext(eventBus::publish);
     }
 
-    private Trade executeTrade(TradeRequest request) {
-        Trade trade = new Trade(
+    public Flux<Trade> history() {
+        return tradeRepository.findAllByOrderByTimestampAsc();
+    }
+
+    private Trade buildTrade(TradeRequest request) {
+        return new Trade(
                 UUID.randomUUID().toString(),
                 request.symbol(),
                 request.side(),
                 request.price(),
                 request.quantity(),
                 Instant.now());
-
-        blotter.add(trade);
-        eventBus.publish(trade);
-        return trade;
     }
 
     private void publishRejection(TradeRequest request, String reason) {
@@ -69,9 +68,5 @@ public class TradeService {
             return Optional.of("unknown symbol: " + request.symbol());
         }
         return Optional.empty();
-    }
-
-    public List<Trade> blotter() {
-        return List.copyOf(blotter);
     }
 }

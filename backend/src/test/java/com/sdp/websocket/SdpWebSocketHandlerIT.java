@@ -2,6 +2,7 @@ package com.sdp.websocket;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
+import com.sdp.PostgresIntegrationTest;
 import com.sdp.common.PriceTick;
 import com.sdp.common.Side;
 import com.sdp.common.Trade;
@@ -24,11 +25,12 @@ import org.springframework.boot.test.web.server.LocalServerPort;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
+import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Tag("integration")
-class SdpWebSocketHandlerIT {
+class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 
 	@LocalServerPort
 	private int port;
@@ -177,6 +179,47 @@ class SdpWebSocketHandlerIT {
 		TradeRejected rejection = objectMapper.convertValue(envelope.payload(), TradeRejected.class);
 		assertThat(rejection.symbol()).isEqualTo("EUR/USD");
 		assertThat(rejection.reason()).isEqualTo("quantity must be greater than zero");
+	}
+
+	@Test
+	void answersGetTradeHistoryWithPersistedTrades() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		TradeRequest request = new TradeRequest("USD/JPY", Side.SELL, new BigDecimal("149.75"), new BigDecimal("250000"));
+		AtomicReference<String> historyMessage = new AtomicReference<>();
+
+		client.execute(URI.create("ws://localhost:" + port + "/ws"), session -> {
+			// .share() so both branches below correlate off one subscription to
+			// session.receive() - waiting for the actual TRADE_CREATED
+			// confirmation (proving the Postgres write committed) rather than a
+			// blind delay, which raced the real write and read back nothing.
+			Flux<String> incoming = session.receive().map(WebSocketMessage::getPayloadAsText).share();
+
+			Mono<Void> createThenRequestHistory = sendEnvelope(session, "CREATE_TRADE", request)
+					.delaySubscription(Duration.ofMillis(200))
+					.then(incoming.filter(text -> text.contains("TRADE_CREATED")).next())
+					.then(sendEnvelope(session, "GET_TRADE_HISTORY", null));
+
+			Mono<Void> receiveHistory = incoming
+					.filter(text -> text.contains("TRADE_HISTORY"))
+					.next()
+					.doOnNext(historyMessage::set)
+					.then();
+
+			return createThenRequestHistory.and(receiveHistory);
+		}).block(Duration.ofSeconds(5));
+
+		Envelope envelope = objectMapper.readValue(historyMessage.get(), Envelope.class);
+		assertThat(envelope.type()).isEqualTo("TRADE_HISTORY");
+
+		// Other tests in this class persist trades against the same shared
+		// container/table, so history isn't necessarily just this one trade -
+		// assert this trade is present rather than asserting an exact list.
+		Trade[] history = objectMapper.convertValue(envelope.payload(), Trade[].class);
+		assertThat(history).anySatisfy(trade -> {
+			assertThat(trade.symbol()).isEqualTo("USD/JPY");
+			assertThat(trade.side()).isEqualTo(Side.SELL);
+			assertThat(trade.quantity()).isEqualByComparingTo("250000");
+		});
 	}
 
 	private Mono<Void> sendEnvelope(WebSocketSession session, String type, Object payload) {
