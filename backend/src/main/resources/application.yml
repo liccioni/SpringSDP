@@ -20,3 +20,18 @@ spring:
       # database available (Testcontainers, see PostgresIntegrationTest), so
       # this stays disabled to keep the plain `test` task CI-safe.
       enabled: false
+
+app:
+  # Frontend origin allowed to call POST /login (CORS) - a different port
+  # from the backend even in local dev, so the browser enforces CORS here
+  # even though it doesn't for the WebSocket connection.
+  frontend-origin: http://localhost:5173
+  auth:
+    # Config-based demo users, not a database table - see ADR 0016. These
+    # are dev/demo credentials, not secrets; password hashes only, never
+    # plaintext.
+    users:
+      - username: trader1
+        password-hash: "$2a$10$Oy3WbsRPjLQjOUjZYciApuVAr4npv7.Ka6Sbref8vU.R2KrKzOnHy" # trader1pass
+      - username: trader2
+        password-hash: "$2a$10$H01hNBWZ7DOZA3epKWGLueWZxCVL5EQJodtodYs/Xkrr/bm7DYuXW" # trader2pass

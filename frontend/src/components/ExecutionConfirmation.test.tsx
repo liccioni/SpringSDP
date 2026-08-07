@@ -35,7 +35,7 @@ describe('ExecutionConfirmation', () => {
       )
     })
 
-    render(<ExecutionConfirmation />)
+    render(<ExecutionConfirmation token="test-token" />)
 
     const confirmation = await screen.findByRole('status')
     expect(confirmation).toHaveTextContent('Executed: BUY 300000 USD/JPY @ 149.51')
@@ -59,7 +59,7 @@ describe('ExecutionConfirmation', () => {
       )
     })
 
-    render(<ExecutionConfirmation />)
+    render(<ExecutionConfirmation token="test-token" />)
 
     const confirmation = await screen.findByRole('status')
     expect(confirmation).toHaveTextContent('Executed: SELL 400000 EUR/GBP @ 0.855')
@@ -82,7 +82,7 @@ describe('ExecutionConfirmation', () => {
       )
     })
 
-    render(<ExecutionConfirmation />)
+    render(<ExecutionConfirmation token="test-token" />)
 
     const rejection = await screen.findByRole('alert')
     expect(rejection).toHaveTextContent('Rejected: BUY 100 XAU/USD @ 2000 — unknown symbol: XAU/USD')
@@ -94,7 +94,7 @@ describe('ExecutionConfirmation', () => {
       socket.send(JSON.stringify({ type: 'PRICE_TICK', payload: { symbol: 'NZD/USD', bid: 0.61, ask: 0.6102 } }))
     })
 
-    render(<ExecutionConfirmation />)
+    render(<ExecutionConfirmation token="test-token" />)
 
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })

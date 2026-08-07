@@ -23,10 +23,13 @@ describe('connect', () => {
     })
 
     const received = await new Promise((resolve) => {
-      const socket = connect((envelope) => {
-        resolve(envelope)
-        socket.close()
-      })
+      const socket = connect(
+        (envelope) => {
+          resolve(envelope)
+          socket.close()
+        },
+        'test-token',
+      )
     })
 
     expect(received).toEqual({ type: 'HELLO', payload: 'hi' })
@@ -36,6 +39,7 @@ describe('connect', () => {
     const opened = await new Promise((resolve) => {
       const socket = connect(
         () => {},
+        'test-token',
         () => {
           resolve(true)
           socket.close()
@@ -44,5 +48,21 @@ describe('connect', () => {
     })
 
     expect(opened).toBe(true)
+  })
+
+  it('appends the token as a query parameter on the connection URL', async () => {
+    let connectedUrl: string | undefined
+    mockServer.on('connection', (socket) => {
+      connectedUrl = socket.url
+    })
+
+    await new Promise<void>((resolve) => {
+      const socket = connect(() => {}, 'abc-123', () => {
+        resolve()
+        socket.close()
+      })
+    })
+
+    expect(connectedUrl).toContain('token=abc-123')
   })
 })

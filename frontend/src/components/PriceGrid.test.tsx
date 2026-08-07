@@ -29,7 +29,7 @@ describe('PriceGrid', () => {
       )
     })
 
-    render(<PriceGrid />)
+    render(<PriceGrid token="test-token" />)
 
     expect(await screen.findByText('EUR/USD')).toBeInTheDocument()
     expect(await screen.findByText('1.085')).toBeInTheDocument()
@@ -52,7 +52,7 @@ describe('PriceGrid', () => {
       )
     })
 
-    render(<PriceGrid />)
+    render(<PriceGrid token="test-token" />)
 
     expect(await screen.findByText('1.266')).toBeInTheDocument()
     await waitFor(() => expect(screen.queryByText('1.265')).not.toBeInTheDocument())
@@ -63,7 +63,7 @@ describe('PriceGrid', () => {
       socket.send(JSON.stringify({ type: 'HELLO', payload: 'hi' }))
     })
 
-    render(<PriceGrid />)
+    render(<PriceGrid token="test-token" />)
 
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByRole('row', { name: /hi/i })).not.toBeInTheDocument()
@@ -85,7 +85,7 @@ describe('PriceGrid', () => {
       )
     })
 
-    render(<PriceGrid />)
+    render(<PriceGrid token="test-token" />)
     await screen.findByText('USD/CHF')
     await userEvent.click(screen.getByRole('button', { name: 'Sell' }))
 
@@ -112,7 +112,7 @@ describe('PriceGrid', () => {
       )
     })
 
-    render(<PriceGrid />)
+    render(<PriceGrid token="test-token" />)
     await screen.findByText('AUD/USD')
     await userEvent.click(screen.getByRole('button', { name: 'Buy' }))
 
@@ -131,7 +131,7 @@ describe('PriceGrid', () => {
       })
     })
 
-    render(<PriceGrid />)
+    render(<PriceGrid token="test-token" />)
 
     await waitFor(() => expect(received).toHaveLength(3))
     expect(received.map((message) => JSON.parse(message))).toEqual([
@@ -157,7 +157,7 @@ describe('PriceGrid', () => {
       )
     })
 
-    render(<PriceGrid />)
+    render(<PriceGrid token="test-token" />)
     const quantityInput = screen.getByLabelText('Quantity')
     fireEvent.change(quantityInput, { target: { value: '250000' } })
 
