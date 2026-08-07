@@ -172,6 +172,26 @@ body {
   outline-offset: 1px;
 }
 
+.trade-ticket--pending {
+  padding: 0.5rem 0.6rem;
+  background: rgba(245, 166, 35, 0.14);
+  border-radius: 3px;
+  animation: rise 200ms ease-out both;
+}
+
+.trade-ticket--pending .trade-ticket__label {
+  color: var(--amber-dim);
+  text-transform: none;
+  letter-spacing: normal;
+  font-family: var(--font-data);
+  flex: 1;
+}
+
+.trade-ticket--pending .side-button {
+  width: auto;
+  padding: 0.3rem 0.9rem;
+}
+
 .panel__hint {
   margin: 0.75rem 0 0;
   font-size: 0.8rem;

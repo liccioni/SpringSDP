@@ -20,13 +20,17 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 * HELLO — payload: a personalized greeting string (e.g. `"Hello, trader1!"`) built from the connection's Session. Sent once, immediately after a connection authenticates; never broadcast.
 * PRICE_TICK
-* TRADE_CREATED
+* TRADE_PENDING — payload: a `PendingTrade` (`id`, `symbol`, `side`, `price`, `quantity`, `timestamp`). Sent only to the connection that submitted the `CREATE_TRADE`, in reply to it; never broadcast. See [ADR 0018](decisions/0018-two-step-trade-confirmation.md) for the two-step execution workflow this starts.
+* TRADE_CREATED — payload: a `Trade`, with the same `id` as the `PendingTrade` it was confirmed from. Sent in reply to `CONFIRM_TRADE`.
+* TRADE_CANCELLED — payload: the cancelled `PendingTrade`. Sent only to the connection that requested the cancellation, in reply to `CANCEL_TRADE`; never broadcast.
 * TRADE_REJECTED
 * TRADE_HISTORY — payload: an array of `Trade`, oldest first. Sent only to the connection that requested it, in reply to `GET_TRADE_HISTORY`; never broadcast.
 
 ## Client → server
 
-* CREATE_TRADE
+* CREATE_TRADE — no longer executes immediately (see ADR 0018): validates and prices the trade, then replies with `TRADE_PENDING` holding it for confirmation. An invalid request still replies with a broadcast `TRADE_REJECTED`, unchanged from before.
+* CONFIRM_TRADE — payload `{ "id": "<pending trade id>" }`. Executes a previously requested pending trade, triggering the broadcast `TRADE_CREATED`. An unknown or already-resolved id is a silent no-op.
+* CANCEL_TRADE — payload `{ "id": "<pending trade id>" }`. Discards a previously requested pending trade and replies with a targeted `TRADE_CANCELLED`. An unknown or already-resolved id is a silent no-op.
 * SUBSCRIBE — payload `{ "symbol": "EUR/USD" }`. Starts delivery of `PRICE_TICK` for that symbol to this connection.
 * UNSUBSCRIBE — same payload shape. Stops delivery of `PRICE_TICK` for that symbol to this connection.
 * GET_TRADE_HISTORY — no payload. Answered with a `TRADE_HISTORY` envelope.
@@ -39,7 +43,7 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 `PRICE_TICK` is the exception: a connection receives no price ticks at all until it sends `SUBSCRIBE` for a symbol, and stops receiving ticks for a symbol once it sends `UNSUBSCRIBE`. Subscriptions are owned by the connection's `Session` (a `SymbolSubscription`, `com.sdp.market`) rather than being anonymous handler state — but since a Session is 1:1 with its connection (ADR 0017), this is still, in effect, per-connection: subscriptions don't survive a reconnect. See [ADR 0013](decisions/0013-subscription-default-nothing-until-subscribed.md) for why "nothing until subscribed" was chosen over defaulting to broadcast-all-narrowed-by-unsubscribe.
 
-`TRADE_HISTORY` is neither broadcast nor subscription-filtered: it's a direct reply to one connection's own request, delivered through that connection's own per-connection sink rather than the shared `EventBus`. Unlike `PRICE_TICK`'s subscription state, this isn't connection-local *filtering* of a shared stream — no other connection ever sees a `TRADE_HISTORY` message that wasn't theirs to begin with.
+`TRADE_HISTORY`, `TRADE_PENDING`, and `TRADE_CANCELLED` are neither broadcast nor subscription-filtered: each is a direct reply to one connection's own request (`GET_TRADE_HISTORY`, `CREATE_TRADE`, `CANCEL_TRADE` respectively), delivered through that connection's own per-connection sink rather than the shared `EventBus`. Unlike `PRICE_TICK`'s subscription state, this isn't connection-local *filtering* of a shared stream — no other connection ever sees one of these messages that wasn't theirs to begin with. `TRADE_CREATED` (sent in reply to `CONFIRM_TRADE`) is the odd one out: even though confirmation is itself a targeted, one-connection request, its result is still broadcast to everyone, unchanged from before the two-step workflow existed — see [ADR 0018](decisions/0018-two-step-trade-confirmation.md).
 
 ⸻
 
