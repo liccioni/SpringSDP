@@ -10,7 +10,11 @@ The returned token is passed as a query parameter when opening the WebSocket: `w
 
 ## Session
 
-A `Session` is created once a connection's token is validated, pairing the resolved username with that WebSocket connection's own id and owning that connection's market data subscriptions. It is 1:1 with the connection: created on successful authentication, gone when the connection closes, with no reconnect continuity. See [ADR 0017](decisions/0017-session-scope.md) for why, and for what further work (trade attribution, audit events) is expected to build on top of it.
+A `Session` is created once a connection's token is validated, pairing the resolved username with that WebSocket connection's own id and owning that connection's market data subscriptions. It is 1:1 with the connection: created on successful authentication, gone when the connection closes, with no reconnect continuity. See [ADR 0017](decisions/0017-session-scope.md) for why, and for what further work (trade attribution) is expected to build on top of it.
+
+## Audit trail
+
+Login attempts (`LOGIN_SUCCESS`/`LOGIN_FAILURE`), session starts (`SESSION_STARTED`), and terminal trading outcomes (`TRADE_EXECUTED`/`TRADE_CANCELLED`/`TRADE_REJECTED`) are persisted as audit events, each carrying the acting session's id (when one exists yet) and username. This is not part of the wire protocol — there's no envelope for it, and nothing in the app reads it back. See [ADR 0019](decisions/0019-audit-events.md) for why it's backend-only for now and what's deliberately not recorded (the `CREATE_TRADE`/pending step, `SUBSCRIBE`/`UNSUBSCRIBE`, session end).
 
 ## Message envelope
 

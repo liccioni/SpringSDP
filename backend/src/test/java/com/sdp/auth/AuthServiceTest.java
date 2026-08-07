@@ -1,13 +1,19 @@
 package com.sdp.auth;
 
+import com.sdp.audit.AuditService;
+
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 
+import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class AuthServiceTest {
 
@@ -15,7 +21,12 @@ class AuthServiceTest {
 
     private final AuthProperties properties = new AuthProperties(
             List.of(new DemoUser("trader1", ENCODER.encode("trader1pass"))));
-    private final AuthService service = new AuthService(properties);
+    private final AuditService auditService = mock(AuditService.class);
+    private final AuthService service = new AuthService(properties, auditService);
+
+    {
+        when(auditService.record(any(), any(), any(), any())).thenReturn(Mono.empty());
+    }
 
     @Test
     void issuesATokenForValidCredentials() {

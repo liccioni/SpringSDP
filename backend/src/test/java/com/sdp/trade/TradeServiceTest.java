@@ -1,13 +1,14 @@
 package com.sdp.trade;
 
+import com.sdp.audit.AuditService;
 import com.sdp.common.Side;
 import com.sdp.common.Trade;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.MarketDataService;
+import com.sdp.session.Session;
 
 import java.math.BigDecimal;
 import java.time.Instant;
-import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -27,18 +28,21 @@ class TradeServiceTest {
 
     private final EventBus eventBus = new EventBus();
     private final TradeRepository tradeRepository = mock(TradeRepository.class);
-    private final TradeService service = new TradeService(new MarketDataService(eventBus), eventBus, tradeRepository);
+    private final AuditService auditService = mock(AuditService.class);
+    private final TradeService service = new TradeService(new MarketDataService(eventBus), eventBus, tradeRepository, auditService);
+    private final Session session = new Session("connection-1", "trader1");
 
     @BeforeEach
     void echoBackWhateverIsSaved() {
         when(tradeRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+        when(auditService.record(any(), any(), any(), any())).thenReturn(Mono.empty());
     }
 
     @Test
     void requestTradeHoldsAPendingTradeWithoutPersistingIt() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
 
-        PendingTrade pending = service.requestTrade(request).orElseThrow();
+        PendingTrade pending = service.requestTrade(request, session).block();
 
         assertThat(pending.id()).isNotBlank();
         assertThat(pending.symbol()).isEqualTo("EUR/USD");
@@ -52,8 +56,8 @@ class TradeServiceTest {
     void eachPendingTradeGetsAUniqueId() {
         TradeRequest request = new TradeRequest("USD/JPY", Side.BUY, new BigDecimal("149.50"), new BigDecimal("100000"));
 
-        PendingTrade first = service.requestTrade(request).orElseThrow();
-        PendingTrade second = service.requestTrade(request).orElseThrow();
+        PendingTrade first = service.requestTrade(request, session).block();
+        PendingTrade second = service.requestTrade(request, session).block();
 
         assertThat(first.id()).isNotEqualTo(second.id());
     }
@@ -61,9 +65,9 @@ class TradeServiceTest {
     @Test
     void confirmTradePersistsAndReturnsTheTrade() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
-        PendingTrade pending = service.requestTrade(request).orElseThrow();
+        PendingTrade pending = service.requestTrade(request, session).block();
 
-        Trade trade = service.confirmTrade(pending.id()).block();
+        Trade trade = service.confirmTrade(pending.id(), session).block();
 
         assertThat(trade.id()).isEqualTo(pending.id());
         assertThat(trade.symbol()).isEqualTo("EUR/USD");
@@ -76,10 +80,10 @@ class TradeServiceTest {
     @Test
     void confirmTradeEmitsOnEventBus() {
         TradeRequest request = new TradeRequest("GBP/USD", Side.SELL, new BigDecimal("1.2650"), new BigDecimal("500000"));
-        PendingTrade pending = service.requestTrade(request).orElseThrow();
+        PendingTrade pending = service.requestTrade(request, session).block();
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.confirmTrade(pending.id()).subscribe())
+                .then(() -> service.confirmTrade(pending.id(), session).subscribe())
                 .assertNext(event -> {
                     assertThat(event).isInstanceOf(Trade.class);
                     assertThat(((Trade) event).symbol()).isEqualTo("GBP/USD");
@@ -90,7 +94,7 @@ class TradeServiceTest {
 
     @Test
     void confirmTradeWithAnUnknownIdDoesNothing() {
-        Trade trade = service.confirmTrade("not-a-pending-trade").block();
+        Trade trade = service.confirmTrade("not-a-pending-trade", session).block();
 
         assertThat(trade).isNull();
         verify(tradeRepository, never()).save(any());
@@ -99,24 +103,24 @@ class TradeServiceTest {
     @Test
     void cancelTradeRemovesThePendingTrade() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
-        PendingTrade pending = service.requestTrade(request).orElseThrow();
+        PendingTrade pending = service.requestTrade(request, session).block();
 
-        Optional<PendingTrade> cancelled = service.cancelTrade(pending.id());
+        PendingTrade cancelled = service.cancelTrade(pending.id(), session).block();
 
-        assertThat(cancelled).contains(pending);
-        assertThat(service.confirmTrade(pending.id()).block()).isNull();
+        assertThat(cancelled).isEqualTo(pending);
+        assertThat(service.confirmTrade(pending.id(), session).block()).isNull();
     }
 
     @Test
     void cancelTradeWithAnUnknownIdReturnsEmpty() {
-        assertThat(service.cancelTrade("not-a-pending-trade")).isEmpty();
+        assertThat(service.cancelTrade("not-a-pending-trade", session).block()).isNull();
     }
 
     @Test
     void rejectsATradeWithNonPositiveQuantity() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("0"));
 
-        assertThat(service.requestTrade(request)).isEmpty();
+        assertThat(service.requestTrade(request, session).block()).isNull();
     }
 
     @Test
@@ -124,7 +128,7 @@ class TradeServiceTest {
         TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0851"), new BigDecimal("-100"));
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.requestTrade(request))
+                .then(() -> service.requestTrade(request, session).subscribe())
                 .assertNext(event -> {
                     assertThat(event).isInstanceOf(TradeRejected.class);
                     TradeRejected rejection = (TradeRejected) event;
@@ -140,7 +144,7 @@ class TradeServiceTest {
         TradeRequest request = new TradeRequest("XAU/USD", Side.BUY, new BigDecimal("2000"), new BigDecimal("100"));
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.requestTrade(request))
+                .then(() -> service.requestTrade(request, session).subscribe())
                 .assertNext(event -> assertThat(((TradeRejected) event).reason()).isEqualTo("unknown symbol: XAU/USD"))
                 .thenCancel()
                 .verify();

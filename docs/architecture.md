@@ -128,6 +128,7 @@ backend/
   trade/
   auth/
   session/
+  audit/
   common/
 
 frontend/
