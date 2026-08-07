@@ -48,7 +48,9 @@ See [retro 0003](retros/0003-mvp-0.3.md) for what shipped, what was verified, an
 
 ⸻
 
-## MVP 0.4 – Persistence
+## MVP 0.4 – Persistence ✅ Done
+
+See [retro 0004](retros/0004-mvp-0.4.md) for what shipped, what was verified, and what was learned.
 
 * PostgreSQL
 * R2DBC

@@ -61,6 +61,8 @@ Any change that scaffolds the backend or frontend must provide these exact Gradl
 
 See [Testing](testing.md) for what these tasks and scripts mean and how coverage is handled.
 
+**If GitHub Actions itself is degraded or down** (check [githubstatus.com](https://www.githubstatus.com/) — a run stuck `queued` with a "job was not acquired by Runner" annotation, or a PR with no workflow run at all despite a fresh push, are both symptoms): this repo's branch protection on `main` has `enforce_admins: true`, so `gh pr merge --admin` does **not** bypass the required `backend`/`frontend` checks — there is no forced-merge escape hatch short of temporarily editing branch protection itself, which needs the user's explicit go-ahead (it's a repo security setting, not just a merge). The accepted fallback, only with the user's explicit per-PR authorization: run the exact same steps the `backend`/`frontend` jobs run locally (see above), and merge normally once they pass — GitHub still requires an actual completed check to allow the merge, so this only unblocks things once a run manages to complete. Once the outage clears, a PR whose webhook event was dropped during the incident will *not* automatically get a CI run — push an empty commit (`git commit --allow-empty`) to generate a fresh trigger.
+
 ⸻
 
 ## Claude Code skills
