@@ -8,6 +8,8 @@ import com.sdp.common.PriceTick;
 import com.sdp.common.Side;
 import com.sdp.common.Trade;
 import com.sdp.market.SubscriptionRequest;
+import com.sdp.trade.PendingTrade;
+import com.sdp.trade.PendingTradeId;
 import com.sdp.trade.TradeRejected;
 import com.sdp.trade.TradeRequest;
 
@@ -170,7 +172,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 	}
 
 	@Test
-	void createsTradeAndBroadcastsTradeCreated() throws Exception {
+	void createTradeRepliesWithATradePendingToTheSubmitterOnly() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		AtomicReference<String> received = new AtomicReference<>();
 		TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"));
@@ -179,14 +181,49 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 			Mono<Void> sendCreateTrade = sendEnvelope(session, "CREATE_TRADE", request)
 					.delaySubscription(Duration.ofMillis(200));
 
-			Mono<Void> receiveTradeCreated = session.receive()
+			Mono<Void> receiveTradePending = session.receive()
 					.map(WebSocketMessage::getPayloadAsText)
+					.filter(text -> text.contains("TRADE_PENDING"))
+					.next()
+					.doOnNext(received::set)
+					.then();
+
+			return sendCreateTrade.and(receiveTradePending);
+		}).block(Duration.ofSeconds(5));
+
+		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
+		assertThat(envelope.type()).isEqualTo("TRADE_PENDING");
+
+		PendingTrade pending = objectMapper.convertValue(envelope.payload(), PendingTrade.class);
+		assertThat(pending.id()).isNotBlank();
+		assertThat(pending.symbol()).isEqualTo("EUR/USD");
+		assertThat(pending.side()).isEqualTo(Side.BUY);
+		assertThat(pending.price()).isEqualByComparingTo("1.0850");
+		assertThat(pending.quantity()).isEqualByComparingTo("1000000");
+	}
+
+	@Test
+	void confirmingAPendingTradeBroadcastsTradeCreated() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		AtomicReference<String> received = new AtomicReference<>();
+		TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0855"), new BigDecimal("750000"));
+
+		client.execute(wsUri(), session -> {
+			Flux<String> incoming = session.receive().map(WebSocketMessage::getPayloadAsText).share();
+
+			Mono<Void> createThenConfirm = sendEnvelope(session, "CREATE_TRADE", request)
+					.delaySubscription(Duration.ofMillis(200))
+					.then(incoming.filter(text -> text.contains("TRADE_PENDING")).next())
+					.flatMap(this::extractPendingTradeId)
+					.flatMap(id -> sendEnvelope(session, "CONFIRM_TRADE", new PendingTradeId(id)));
+
+			Mono<Void> receiveTradeCreated = incoming
 					.filter(text -> text.contains("TRADE_CREATED"))
 					.next()
 					.doOnNext(received::set)
 					.then();
 
-			return sendCreateTrade.and(receiveTradeCreated);
+			return createThenConfirm.and(receiveTradeCreated);
 		}).block(Duration.ofSeconds(5));
 
 		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
@@ -194,9 +231,48 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 
 		Trade trade = objectMapper.convertValue(envelope.payload(), Trade.class);
 		assertThat(trade.symbol()).isEqualTo("EUR/USD");
-		assertThat(trade.side()).isEqualTo(Side.BUY);
-		assertThat(trade.price()).isEqualByComparingTo("1.0850");
-		assertThat(trade.quantity()).isEqualByComparingTo("1000000");
+		assertThat(trade.side()).isEqualTo(Side.SELL);
+		assertThat(trade.price()).isEqualByComparingTo("1.0855");
+		assertThat(trade.quantity()).isEqualByComparingTo("750000");
+	}
+
+	@Test
+	void cancellingAPendingTradeRepliesWithTradeCancelledToTheSubmitterOnly() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		AtomicReference<String> received = new AtomicReference<>();
+		TradeRequest request = new TradeRequest("GBP/USD", Side.BUY, new BigDecimal("1.2660"), new BigDecimal("300000"));
+
+		client.execute(wsUri(), session -> {
+			Flux<String> incoming = session.receive().map(WebSocketMessage::getPayloadAsText).share();
+
+			Mono<Void> createThenCancel = sendEnvelope(session, "CREATE_TRADE", request)
+					.delaySubscription(Duration.ofMillis(200))
+					.then(incoming.filter(text -> text.contains("TRADE_PENDING")).next())
+					.flatMap(this::extractPendingTradeId)
+					.flatMap(id -> sendEnvelope(session, "CANCEL_TRADE", new PendingTradeId(id)));
+
+			Mono<Void> receiveTradeCancelled = incoming
+					.filter(text -> text.contains("TRADE_CANCELLED"))
+					.next()
+					.doOnNext(received::set)
+					.then();
+
+			return createThenCancel.and(receiveTradeCancelled);
+		}).block(Duration.ofSeconds(5));
+
+		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
+		assertThat(envelope.type()).isEqualTo("TRADE_CANCELLED");
+
+		PendingTrade cancelled = objectMapper.convertValue(envelope.payload(), PendingTrade.class);
+		assertThat(cancelled.symbol()).isEqualTo("GBP/USD");
+		assertThat(cancelled.quantity()).isEqualByComparingTo("300000");
+	}
+
+	private Mono<String> extractPendingTradeId(String tradePendingText) {
+		return Mono.fromCallable(() -> {
+			Envelope envelope = objectMapper.readValue(tradePendingText, Envelope.class);
+			return objectMapper.convertValue(envelope.payload(), PendingTrade.class).id();
+		});
 	}
 
 	@Test
@@ -242,6 +318,9 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 
 			Mono<Void> createThenRequestHistory = sendEnvelope(session, "CREATE_TRADE", request)
 					.delaySubscription(Duration.ofMillis(200))
+					.then(incoming.filter(text -> text.contains("TRADE_PENDING")).next())
+					.flatMap(this::extractPendingTradeId)
+					.flatMap(id -> sendEnvelope(session, "CONFIRM_TRADE", new PendingTradeId(id)))
 					.then(incoming.filter(text -> text.contains("TRADE_CREATED")).next())
 					.then(sendEnvelope(session, "GET_TRADE_HISTORY", null));
 

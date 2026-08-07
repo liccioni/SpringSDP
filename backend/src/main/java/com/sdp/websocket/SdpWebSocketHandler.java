@@ -4,6 +4,7 @@ import com.sdp.auth.AuthService;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
 import com.sdp.session.Session;
+import com.sdp.trade.PendingTradeId;
 import com.sdp.trade.TradeRequest;
 import com.sdp.trade.TradeService;
 
@@ -25,17 +26,20 @@ import reactor.core.publisher.Sinks;
  * no HELLO. Once authenticated, resolves the connection's Session (see
  * ADR 0017) and sends a personalized HELLO envelope, then streams EventBus
  * events and handles incoming
- * CREATE_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY envelopes for the
- * session's lifetime. Doesn't know or care which service published an event.
+ * CREATE_TRADE/CONFIRM_TRADE/CANCEL_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY
+ * envelopes for the session's lifetime. Doesn't know or care which service
+ * published an event.
  *
  * Each connection starts subscribed to no symbols, so PRICE_TICK delivery is
  * scoped to that connection's own subscriptions via SUBSCRIBE/UNSUBSCRIBE
  * (see SymbolSubscription for the visibility rule). TRADE_CREATED and
- * TRADE_REJECTED are unaffected and stay broadcast to every session, per
- * docs/protocol.md. TRADE_HISTORY is different again: it's a targeted reply
- * to that connection's own GET_TRADE_HISTORY request, sent only to the
- * requesting connection via its own per-connection sink rather than the
- * shared, broadcast EventBus.
+ * TRADE_REJECTED stay broadcast to every session, per docs/protocol.md.
+ * TRADE_PENDING, TRADE_CANCELLED, and TRADE_HISTORY are different: each is a
+ * targeted reply to that connection's own request (CREATE_TRADE,
+ * CANCEL_TRADE, GET_TRADE_HISTORY respectively), sent only to the requesting
+ * connection via its own per-connection sink rather than the shared,
+ * broadcast EventBus. See ADR 0018 for the two-step CREATE_TRADE ->
+ * CONFIRM_TRADE/CANCEL_TRADE execution workflow this implements.
  */
 @Component
 public class SdpWebSocketHandler implements WebSocketHandler {
@@ -98,7 +102,9 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private Mono<Void> handleIncoming(String text, Session session, Sinks.Many<Envelope> directMessages) {
 		Envelope envelope = objectMapper.readValue(text, Envelope.class);
 		return switch (envelope.type()) {
-			case "CREATE_TRADE" -> handleCreateTrade(envelope);
+			case "CREATE_TRADE" -> handleCreateTrade(envelope, directMessages);
+			case "CONFIRM_TRADE" -> handleConfirmTrade(envelope);
+			case "CANCEL_TRADE" -> handleCancelTrade(envelope, directMessages);
 			case "SUBSCRIBE" -> handleSubscribe(envelope, session);
 			case "UNSUBSCRIBE" -> handleUnsubscribe(envelope, session);
 			case "GET_TRADE_HISTORY" -> handleGetTradeHistory(directMessages);
@@ -106,9 +112,25 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 		};
 	}
 
-	private Mono<Void> handleCreateTrade(Envelope envelope) {
+	private Mono<Void> handleCreateTrade(Envelope envelope, Sinks.Many<Envelope> directMessages) {
 		TradeRequest request = objectMapper.convertValue(envelope.payload(), TradeRequest.class);
-		return tradeService.createTrade(request).then();
+		tradeService.requestTrade(request)
+				.ifPresent(pending -> emitDirect(directMessages, new Envelope("TRADE_PENDING", pending)));
+		return Mono.empty();
+	}
+
+	private Mono<Void> handleConfirmTrade(Envelope envelope) {
+		return tradeService.confirmTrade(readPendingTradeId(envelope)).then();
+	}
+
+	private Mono<Void> handleCancelTrade(Envelope envelope, Sinks.Many<Envelope> directMessages) {
+		tradeService.cancelTrade(readPendingTradeId(envelope))
+				.ifPresent(pending -> emitDirect(directMessages, new Envelope("TRADE_CANCELLED", pending)));
+		return Mono.empty();
+	}
+
+	private String readPendingTradeId(Envelope envelope) {
+		return objectMapper.convertValue(envelope.payload(), PendingTradeId.class).id();
 	}
 
 	private Mono<Void> handleSubscribe(Envelope envelope, Session session) {

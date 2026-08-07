@@ -7,6 +7,7 @@ import com.sdp.market.MarketDataService;
 
 import java.math.BigDecimal;
 import java.time.Instant;
+import java.util.Optional;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -18,6 +19,8 @@ import reactor.test.StepVerifier;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TradeServiceTest {
@@ -32,12 +35,37 @@ class TradeServiceTest {
     }
 
     @Test
-    void createTradeSavesAndReturnsATrade() {
+    void requestTradeHoldsAPendingTradeWithoutPersistingIt() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
 
-        Trade trade = service.createTrade(request).block();
+        PendingTrade pending = service.requestTrade(request).orElseThrow();
 
-        assertThat(trade.id()).isNotBlank();
+        assertThat(pending.id()).isNotBlank();
+        assertThat(pending.symbol()).isEqualTo("EUR/USD");
+        assertThat(pending.side()).isEqualTo(Side.BUY);
+        assertThat(pending.price()).isEqualTo(request.price());
+        assertThat(pending.quantity()).isEqualTo(request.quantity());
+        verify(tradeRepository, never()).save(any());
+    }
+
+    @Test
+    void eachPendingTradeGetsAUniqueId() {
+        TradeRequest request = new TradeRequest("USD/JPY", Side.BUY, new BigDecimal("149.50"), new BigDecimal("100000"));
+
+        PendingTrade first = service.requestTrade(request).orElseThrow();
+        PendingTrade second = service.requestTrade(request).orElseThrow();
+
+        assertThat(first.id()).isNotEqualTo(second.id());
+    }
+
+    @Test
+    void confirmTradePersistsAndReturnsTheTrade() {
+        TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
+        PendingTrade pending = service.requestTrade(request).orElseThrow();
+
+        Trade trade = service.confirmTrade(pending.id()).block();
+
+        assertThat(trade.id()).isEqualTo(pending.id());
         assertThat(trade.symbol()).isEqualTo("EUR/USD");
         assertThat(trade.side()).isEqualTo(Side.BUY);
         assertThat(trade.price()).isEqualTo(request.price());
@@ -46,11 +74,12 @@ class TradeServiceTest {
     }
 
     @Test
-    void createTradeEmitsOnEventBus() {
+    void confirmTradeEmitsOnEventBus() {
         TradeRequest request = new TradeRequest("GBP/USD", Side.SELL, new BigDecimal("1.2650"), new BigDecimal("500000"));
+        PendingTrade pending = service.requestTrade(request).orElseThrow();
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.createTrade(request).subscribe())
+                .then(() -> service.confirmTrade(pending.id()).subscribe())
                 .assertNext(event -> {
                     assertThat(event).isInstanceOf(Trade.class);
                     assertThat(((Trade) event).symbol()).isEqualTo("GBP/USD");
@@ -60,22 +89,34 @@ class TradeServiceTest {
     }
 
     @Test
-    void eachTradeGetsAUniqueId() {
-        TradeRequest request = new TradeRequest("USD/JPY", Side.BUY, new BigDecimal("149.50"), new BigDecimal("100000"));
+    void confirmTradeWithAnUnknownIdDoesNothing() {
+        Trade trade = service.confirmTrade("not-a-pending-trade").block();
 
-        Trade first = service.createTrade(request).block();
-        Trade second = service.createTrade(request).block();
+        assertThat(trade).isNull();
+        verify(tradeRepository, never()).save(any());
+    }
 
-        assertThat(first.id()).isNotEqualTo(second.id());
+    @Test
+    void cancelTradeRemovesThePendingTrade() {
+        TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
+        PendingTrade pending = service.requestTrade(request).orElseThrow();
+
+        Optional<PendingTrade> cancelled = service.cancelTrade(pending.id());
+
+        assertThat(cancelled).contains(pending);
+        assertThat(service.confirmTrade(pending.id()).block()).isNull();
+    }
+
+    @Test
+    void cancelTradeWithAnUnknownIdReturnsEmpty() {
+        assertThat(service.cancelTrade("not-a-pending-trade")).isEmpty();
     }
 
     @Test
     void rejectsATradeWithNonPositiveQuantity() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("0"));
 
-        Trade trade = service.createTrade(request).block();
-
-        assertThat(trade).isNull();
+        assertThat(service.requestTrade(request)).isEmpty();
     }
 
     @Test
@@ -83,7 +124,7 @@ class TradeServiceTest {
         TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0851"), new BigDecimal("-100"));
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.createTrade(request).subscribe())
+                .then(() -> service.requestTrade(request))
                 .assertNext(event -> {
                     assertThat(event).isInstanceOf(TradeRejected.class);
                     TradeRejected rejection = (TradeRejected) event;
@@ -99,7 +140,7 @@ class TradeServiceTest {
         TradeRequest request = new TradeRequest("XAU/USD", Side.BUY, new BigDecimal("2000"), new BigDecimal("100"));
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.createTrade(request).subscribe())
+                .then(() -> service.requestTrade(request))
                 .assertNext(event -> assertThat(((TradeRejected) event).reason()).isEqualTo("unknown symbol: XAU/USD"))
                 .thenCancel()
                 .verify();

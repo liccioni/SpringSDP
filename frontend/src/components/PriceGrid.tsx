@@ -9,6 +9,7 @@ import {
 } from 'ag-grid-community'
 import { connect } from '../services/socket'
 import { tradingTheme } from '../theme/tradingTheme'
+import type { PendingTrade } from '../types/pendingTrade'
 import type { PriceTick } from '../types/priceTick'
 import type { Side, TradeRequest } from '../types/tradeRequest'
 
@@ -32,6 +33,7 @@ interface PriceGridProps {
 function PriceGrid({ token }: PriceGridProps) {
   const [prices, setPrices] = useState<Record<string, PriceTick>>({})
   const [quantity, setQuantity] = useState<number>(DEFAULT_QUANTITY)
+  const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
   const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
@@ -40,6 +42,11 @@ function PriceGrid({ token }: PriceGridProps) {
         if (envelope.type === 'PRICE_TICK') {
           const tick = envelope.payload as PriceTick
           setPrices((current) => ({ ...current, [tick.symbol]: tick }))
+        } else if (envelope.type === 'TRADE_PENDING') {
+          setPendingTrade(envelope.payload as PendingTrade)
+        } else if (envelope.type === 'TRADE_CREATED' || envelope.type === 'TRADE_CANCELLED') {
+          const resolved = envelope.payload as { id: string }
+          setPendingTrade((current) => (current?.id === resolved.id ? null : current))
         }
       },
       token,
@@ -59,6 +66,16 @@ function PriceGrid({ token }: PriceGridProps) {
   function sendTrade(tick: PriceTick, side: Side, price: number) {
     const request: TradeRequest = { symbol: tick.symbol, side, price, quantity }
     socketRef.current?.send(JSON.stringify({ type: 'CREATE_TRADE', payload: request }))
+  }
+
+  function confirmPendingTrade() {
+    if (!pendingTrade) return
+    socketRef.current?.send(JSON.stringify({ type: 'CONFIRM_TRADE', payload: { id: pendingTrade.id } }))
+  }
+
+  function cancelPendingTrade() {
+    if (!pendingTrade) return
+    socketRef.current?.send(JSON.stringify({ type: 'CANCEL_TRADE', payload: { id: pendingTrade.id } }))
   }
 
   function handleQuantityChanged(event: ChangeEvent<HTMLInputElement>) {
@@ -81,6 +98,7 @@ function PriceGrid({ token }: PriceGridProps) {
           <button
             type="button"
             className="side-button side-button--sell"
+            disabled={pendingTrade !== null}
             onClick={() => sendTrade(params.data as PriceTick, 'SELL', (params.data as PriceTick).bid)}
           >
             Sell
@@ -96,6 +114,7 @@ function PriceGrid({ token }: PriceGridProps) {
           <button
             type="button"
             className="side-button side-button--buy"
+            disabled={pendingTrade !== null}
             onClick={() => sendTrade(params.data as PriceTick, 'BUY', (params.data as PriceTick).ask)}
           >
             Buy
@@ -120,6 +139,19 @@ function PriceGrid({ token }: PriceGridProps) {
           onChange={handleQuantityChanged}
         />
       </div>
+      {pendingTrade && (
+        <div className="trade-ticket trade-ticket--pending">
+          <span className="trade-ticket__label">
+            Confirm {pendingTrade.side} {pendingTrade.quantity} {pendingTrade.symbol} @ {pendingTrade.price}?
+          </span>
+          <button type="button" className="side-button side-button--buy" onClick={confirmPendingTrade}>
+            Confirm
+          </button>
+          <button type="button" className="side-button side-button--sell" onClick={cancelPendingTrade}>
+            Cancel
+          </button>
+        </div>
+      )}
       <AgGridReact<PriceTick>
         theme={tradingTheme}
         rowData={rowData}

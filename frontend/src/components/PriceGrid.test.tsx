@@ -170,4 +170,115 @@ describe('PriceGrid', () => {
       payload: { symbol: 'EUR/GBP', side: 'BUY', price: 0.8552, quantity: 250_000 },
     })
   })
+
+  it('shows a confirm/cancel prompt and disables Buy/Sell when a TRADE_PENDING arrives', async () => {
+    mockServer.on('connection', (socket) => {
+      socket.send(
+        JSON.stringify({
+          type: 'PRICE_TICK',
+          payload: { symbol: 'NZD/USD', bid: 0.61, ask: 0.6102, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_PENDING',
+          payload: { id: 'pending-1', symbol: 'NZD/USD', side: 'BUY', price: 0.6102, quantity: 1_000_000, timestamp: '2026-01-01T00:00:01Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid token="test-token" />)
+
+    expect(await screen.findByText(/confirm buy 1000000 nzd\/usd @ 0.6102\?/i)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Buy' })).toBeDisabled()
+    expect(screen.getByRole('button', { name: 'Sell' })).toBeDisabled()
+  })
+
+  it('sends CONFIRM_TRADE with the pending id when Confirm is clicked', async () => {
+    let received: string | undefined
+    mockServer.on('connection', (socket) => {
+      socket.on('message', (message) => {
+        if ((message as string).includes('CONFIRM_TRADE')) {
+          received = message as string
+        }
+      })
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_PENDING',
+          payload: { id: 'pending-2', symbol: 'EUR/USD', side: 'SELL', price: 1.0849, quantity: 500_000, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid token="test-token" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Confirm' }))
+
+    await waitFor(() => expect(received).toBeDefined())
+    expect(JSON.parse(received!)).toEqual({ type: 'CONFIRM_TRADE', payload: { id: 'pending-2' } })
+  })
+
+  it('sends CANCEL_TRADE with the pending id when Cancel is clicked', async () => {
+    let received: string | undefined
+    mockServer.on('connection', (socket) => {
+      socket.on('message', (message) => {
+        if ((message as string).includes('CANCEL_TRADE')) {
+          received = message as string
+        }
+      })
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_PENDING',
+          payload: { id: 'pending-3', symbol: 'GBP/USD', side: 'BUY', price: 1.2661, quantity: 200_000, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid token="test-token" />)
+    await userEvent.click(await screen.findByRole('button', { name: 'Cancel' }))
+
+    await waitFor(() => expect(received).toBeDefined())
+    expect(JSON.parse(received!)).toEqual({ type: 'CANCEL_TRADE', payload: { id: 'pending-3' } })
+  })
+
+  it('clears the pending prompt once a matching TRADE_CREATED arrives', async () => {
+    mockServer.on('connection', (socket) => {
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_PENDING',
+          payload: { id: 'pending-4', symbol: 'USD/JPY', side: 'SELL', price: 149.5, quantity: 100_000, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_CREATED',
+          payload: { id: 'pending-4', symbol: 'USD/JPY', side: 'SELL', price: 149.5, quantity: 100_000, timestamp: '2026-01-01T00:00:01Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid token="test-token" />)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Confirm' })).not.toBeInTheDocument())
+  })
+
+  it('clears the pending prompt once a matching TRADE_CANCELLED arrives', async () => {
+    mockServer.on('connection', (socket) => {
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_PENDING',
+          payload: { id: 'pending-5', symbol: 'EUR/USD', side: 'BUY', price: 1.086, quantity: 100_000, timestamp: '2026-01-01T00:00:00Z' },
+        }),
+      )
+      socket.send(
+        JSON.stringify({
+          type: 'TRADE_CANCELLED',
+          payload: { id: 'pending-5', symbol: 'EUR/USD', side: 'BUY', price: 1.086, quantity: 100_000, timestamp: '2026-01-01T00:00:01Z' },
+        }),
+      )
+    })
+
+    render(<PriceGrid token="test-token" />)
+
+    await waitFor(() => expect(screen.queryByRole('button', { name: 'Cancel' })).not.toBeInTheDocument())
+  })
 })
