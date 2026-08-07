@@ -10,7 +10,7 @@ The returned token is passed as a query parameter when opening the WebSocket: `w
 
 ## Session
 
-A `Session` is created once a connection's token is validated, pairing the resolved username with that WebSocket connection's own id. It is 1:1 with the connection: created on successful authentication, gone when the connection closes, with no reconnect continuity. See [ADR 0017](decisions/0017-session-scope.md) for why, and for what future work (per-session subscriptions, trade attribution, audit events) is expected to build on top of it.
+A `Session` is created once a connection's token is validated, pairing the resolved username with that WebSocket connection's own id and owning that connection's market data subscriptions. It is 1:1 with the connection: created on successful authentication, gone when the connection closes, with no reconnect continuity. See [ADR 0017](decisions/0017-session-scope.md) for why, and for what further work (trade attribution, audit events) is expected to build on top of it.
 
 ## Message envelope
 
@@ -37,7 +37,7 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 `TRADE_CREATED` and `TRADE_REJECTED` are broadcast to every connected session. A rejection is only meaningful to the session that submitted the trade, so whether `TRADE_REJECTED` (and any future submitter-only event) becomes targeted delivery instead of a broadcast remains a decision for a later issue — `Trade` and `TradeRejected` carry no submitter identity yet, even though a Session now exists to attribute one to (see [ADR 0017](decisions/0017-session-scope.md)).
 
-`PRICE_TICK` is the exception: a connection receives no price ticks at all until it sends `SUBSCRIBE` for a symbol, and stops receiving ticks for a symbol once it sends `UNSUBSCRIBE`. This is still connection-local filtering inside `SdpWebSocketHandler` rather than something owned by Session (issue #26 tracks moving it there; issue #69 tracks extracting the filtering logic itself into its own type) — subscriptions live for the lifetime of one connection/session and don't survive a reconnect. See [ADR 0013](decisions/0013-subscription-default-nothing-until-subscribed.md) for why "nothing until subscribed" was chosen over defaulting to broadcast-all-narrowed-by-unsubscribe.
+`PRICE_TICK` is the exception: a connection receives no price ticks at all until it sends `SUBSCRIBE` for a symbol, and stops receiving ticks for a symbol once it sends `UNSUBSCRIBE`. Subscriptions are owned by the connection's `Session` (a `SymbolSubscription`, `com.sdp.market`) rather than being anonymous handler state — but since a Session is 1:1 with its connection (ADR 0017), this is still, in effect, per-connection: subscriptions don't survive a reconnect. See [ADR 0013](decisions/0013-subscription-default-nothing-until-subscribed.md) for why "nothing until subscribed" was chosen over defaulting to broadcast-all-narrowed-by-unsubscribe.
 
 `TRADE_HISTORY` is neither broadcast nor subscription-filtered: it's a direct reply to one connection's own request, delivered through that connection's own per-connection sink rather than the shared `EventBus`. Unlike `PRICE_TICK`'s subscription state, this isn't connection-local *filtering* of a shared stream — no other connection ever sees a `TRADE_HISTORY` message that wasn't theirs to begin with.
 

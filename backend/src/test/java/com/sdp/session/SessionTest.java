@@ -13,4 +13,11 @@ class SessionTest {
         assertThat(session.id()).isEqualTo("connection-1");
         assertThat(session.username()).isEqualTo("trader1");
     }
+
+    @Test
+    void ownsItsOwnSymbolSubscription() {
+        Session session = new Session("connection-1", "trader1");
+
+        assertThat(session.subscriptions()).isNotNull();
+    }
 }
