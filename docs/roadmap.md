@@ -59,10 +59,18 @@ See [retro 0004](retros/0004-mvp-0.4.md) for what shipped, what was verified, an
 
 ⸻
 
-## MVP 0.5 – Dealer platform foundation
+## MVP 0.5 – Dealer platform foundation ✅ Done
+
+See [retro 0005](retros/0005-mvp-0.5.md) for what shipped, what was verified, and what was learned.
 
 * authentication
 * sessions
 * market data subscriptions
 * execution workflows
 * audit events
+
+⸻
+
+## What's next
+
+MVP 0.1 through 0.5 are all complete. The next milestone hasn't been scoped yet — deliberately: see [retro 0005](retros/0005-mvp-0.5.md) and CLAUDE.md's project directive for why this is a planning conversation to have now rather than a default to invent silently.

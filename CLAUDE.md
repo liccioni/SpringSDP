@@ -55,7 +55,7 @@ Domain boundaries matter from the beginning.
 
 ## Current milestone
 
-MVP 0.5 — dealer platform foundation: authentication, sessions, per-session market data subscriptions, execution workflows, and audit events, building on MVP 0.4's persistence (done — see [retro 0004](docs/retros/0004-mvp-0.4.md)). Full definition and the milestones beyond it are in [Roadmap](docs/roadmap.md).
+MVP 0.1 through MVP 0.5 are all complete (done — see [retro 0005](docs/retros/0005-mvp-0.5.md)). The next milestone has not been scoped yet — that's a deliberate planning decision, not an oversight, per this project's own directive to plan next steps once the foundation milestones are done rather than default into a new one silently. See [Roadmap](docs/roadmap.md) for the full history.
 
 ⸻
 
