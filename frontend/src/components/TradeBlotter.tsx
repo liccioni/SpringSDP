@@ -22,6 +22,20 @@ function formatTimeOfDay(timestamp: string): string {
   return timestamp.split('T')[1]?.slice(0, 8) ?? timestamp
 }
 
+// Reconciles trades already in state with an incoming batch (a live
+// TRADE_CREATED, or the TRADE_HISTORY snapshot on connect), deduplicating by
+// id and sorting newest-first. A trade can legitimately arrive in both: history
+// is queried asynchronously, so a trade created right around connect time can
+// reach the live stream before or after the history snapshot that may already
+// include it.
+function mergeTrades(current: Trade[], incoming: Trade[]): Trade[] {
+  const byId = new Map(current.map((trade) => [trade.id, trade]))
+  for (const trade of incoming) {
+    byId.set(trade.id, trade)
+  }
+  return [...byId.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
+}
+
 const columnDefs: ColDef<Trade>[] = [
   { field: 'timestamp', headerName: 'Time', valueFormatter: (params) => formatTimeOfDay(params.value), flex: 0.8 },
   { field: 'symbol', headerName: 'Symbol', cellClass: 'cell-symbol', flex: 1 },
@@ -38,12 +52,20 @@ function TradeBlotter() {
   const [trades, setTrades] = useState<Trade[]>([])
 
   useEffect(() => {
-    const socket = connect((envelope) => {
-      if (envelope.type === 'TRADE_CREATED') {
-        const trade = envelope.payload as Trade
-        setTrades((current) => [trade, ...current])
-      }
-    })
+    const socket = connect(
+      (envelope) => {
+        if (envelope.type === 'TRADE_CREATED') {
+          const trade = envelope.payload as Trade
+          setTrades((current) => mergeTrades(current, [trade]))
+        } else if (envelope.type === 'TRADE_HISTORY') {
+          const history = envelope.payload as Trade[]
+          setTrades((current) => mergeTrades(current, history))
+        }
+      },
+      () => {
+        socket.send(JSON.stringify({ type: 'GET_TRADE_HISTORY' }))
+      },
+    )
 
     return () => socket.close()
   }, [])
