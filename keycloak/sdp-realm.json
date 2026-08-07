@@ -1,0 +1,36 @@
+{
+  "realm": "sdp",
+  "enabled": true,
+  "roles": {
+    "realm": [
+      { "name": "trader", "description": "Full access: subscribe, create/confirm/cancel trades, view the blotter" },
+      { "name": "viewer", "description": "Read-only: prices and blotter, no trading" }
+    ]
+  },
+  "users": [
+    {
+      "username": "trader1",
+      "enabled": true,
+      "email": "trader1@sdp.local",
+      "emailVerified": true,
+      "firstName": "Trader",
+      "lastName": "One",
+      "credentials": [
+        { "type": "password", "value": "trader1pass", "temporary": false }
+      ],
+      "realmRoles": ["trader"]
+    },
+    {
+      "username": "trader2",
+      "enabled": true,
+      "email": "trader2@sdp.local",
+      "emailVerified": true,
+      "firstName": "Trader",
+      "lastName": "Two",
+      "credentials": [
+        { "type": "password", "value": "trader2pass", "temporary": false }
+      ],
+      "realmRoles": ["viewer"]
+    }
+  ]
+}

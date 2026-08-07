@@ -30,5 +30,23 @@ services:
     depends_on:
       - backend
 
+  redis:
+    # redis:7-alpine, pinned by digest for reproducible builds
+    image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    ports:
+      - "6379:6379"
+
+  keycloak:
+    # keycloak:26.7.1, pinned by digest for reproducible builds
+    image: quay.io/keycloak/keycloak@sha256:f1f1f01e472c8a78df40d8f2a49a925274eda4d3d80d5f6edbb5c880ee3c01c6
+    command: start-dev --import-realm
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./keycloak/sdp-realm.json:/opt/keycloak/data/import/sdp-realm.json
+
 volumes:
   postgres-data:
