@@ -1,8 +1,10 @@
 package com.sdp.trade;
 
+import com.sdp.audit.AuditService;
 import com.sdp.common.Trade;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.MarketDataService;
+import com.sdp.session.Session;
 
 import java.time.Instant;
 import java.util.Map;
@@ -20,7 +22,8 @@ import reactor.core.publisher.Mono;
  * validates a CREATE_TRADE request and holds it as a PendingTrade, or
  * rejects it immediately with a reason; confirmTrade persists a previously
  * requested trade and publishes it; cancelTrade discards one. Publishes
- * outcomes to the EventBus for the WebSocket layer to broadcast. Does not
+ * outcomes to the EventBus for the WebSocket layer to broadcast, and
+ * records each terminal outcome as an audit event (see ADR 0019). Does not
  * generate prices.
  */
 @Service
@@ -29,36 +32,45 @@ public class TradeService {
     private final MarketDataService marketDataService;
     private final EventBus eventBus;
     private final TradeRepository tradeRepository;
+    private final AuditService auditService;
     private final Map<String, PendingTrade> pendingTrades = new ConcurrentHashMap<>();
 
-    public TradeService(MarketDataService marketDataService, EventBus eventBus, TradeRepository tradeRepository) {
+    public TradeService(MarketDataService marketDataService, EventBus eventBus, TradeRepository tradeRepository, AuditService auditService) {
         this.marketDataService = marketDataService;
         this.eventBus = eventBus;
         this.tradeRepository = tradeRepository;
+        this.auditService = auditService;
     }
 
-    public Optional<PendingTrade> requestTrade(TradeRequest request) {
+    public Mono<PendingTrade> requestTrade(TradeRequest request, Session session) {
         Optional<String> rejectionReason = validate(request);
         if (rejectionReason.isPresent()) {
             publishRejection(request, rejectionReason.get());
-            return Optional.empty();
+            return auditService.record(session.id(), session.username(), "TRADE_REJECTED", describe(request) + " - " + rejectionReason.get())
+                    .then(Mono.empty());
         }
         PendingTrade pending = buildPendingTrade(request);
         pendingTrades.put(pending.id(), pending);
-        return Optional.of(pending);
+        return Mono.just(pending);
     }
 
-    public Mono<Trade> confirmTrade(String id) {
+    public Mono<Trade> confirmTrade(String id, Session session) {
         PendingTrade pending = pendingTrades.remove(id);
         if (pending == null) {
             return Mono.empty();
         }
         return tradeRepository.save(buildTrade(pending))
-                .doOnNext(eventBus::publish);
+                .doOnNext(eventBus::publish)
+                .flatMap(trade -> auditService.record(session.id(), session.username(), "TRADE_EXECUTED", describe(trade)).thenReturn(trade));
     }
 
-    public Optional<PendingTrade> cancelTrade(String id) {
-        return Optional.ofNullable(pendingTrades.remove(id));
+    public Mono<PendingTrade> cancelTrade(String id, Session session) {
+        PendingTrade pending = pendingTrades.remove(id);
+        if (pending == null) {
+            return Mono.empty();
+        }
+        return auditService.record(session.id(), session.username(), "TRADE_CANCELLED", describe(pending))
+                .thenReturn(pending);
     }
 
     public Flux<Trade> history() {
@@ -91,5 +103,17 @@ public class TradeService {
             return Optional.of("unknown symbol: " + request.symbol());
         }
         return Optional.empty();
+    }
+
+    private String describe(TradeRequest request) {
+        return request.side() + " " + request.quantity() + " " + request.symbol() + " @ " + request.price();
+    }
+
+    private String describe(PendingTrade pending) {
+        return pending.side() + " " + pending.quantity() + " " + pending.symbol() + " @ " + pending.price();
+    }
+
+    private String describe(Trade trade) {
+        return trade.side() + " " + trade.quantity() + " " + trade.symbol() + " @ " + trade.price();
     }
 }

@@ -1,12 +1,19 @@
 package com.sdp.auth;
 
+import com.sdp.audit.AuditService;
+
 import java.util.List;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.security.crypto.bcrypt.BCryptPasswordEncoder;
 import org.springframework.test.web.reactive.server.WebTestClient;
 
+import reactor.core.publisher.Mono;
+
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class LoginControllerTest {
 
@@ -14,8 +21,13 @@ class LoginControllerTest {
 
     private final AuthProperties properties = new AuthProperties(
             List.of(new DemoUser("trader1", ENCODER.encode("trader1pass"))));
-    private final AuthService authService = new AuthService(properties);
+    private final AuditService auditService = mock(AuditService.class);
+    private final AuthService authService = new AuthService(properties, auditService);
     private final WebTestClient client = WebTestClient.bindToController(new LoginController(authService)).build();
+
+    {
+        when(auditService.record(any(), any(), any(), any())).thenReturn(Mono.empty());
+    }
 
     @Test
     void returnsATokenForValidCredentials() {

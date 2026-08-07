@@ -1,5 +1,6 @@
 package com.sdp.websocket;
 
+import com.sdp.audit.AuditService;
 import com.sdp.auth.AuthService;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
@@ -24,8 +25,9 @@ import reactor.core.publisher.Sinks;
  * Requires a valid token (see AuthService/ADR 0016) before anything else -
  * a connection with a missing or invalid token is closed immediately, with
  * no HELLO. Once authenticated, resolves the connection's Session (see
- * ADR 0017) and sends a personalized HELLO envelope, then streams EventBus
- * events and handles incoming
+ * ADR 0017), records a SESSION_STARTED audit event (see ADR 0019), and
+ * sends a personalized HELLO envelope, then streams EventBus events and
+ * handles incoming
  * CREATE_TRADE/CONFIRM_TRADE/CANCEL_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY
  * envelopes for the session's lifetime. Doesn't know or care which service
  * published an event.
@@ -48,12 +50,14 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private final EventBus eventBus;
 	private final TradeService tradeService;
 	private final AuthService authService;
+	private final AuditService auditService;
 
-	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService, AuthService authService) {
+	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService, AuthService authService, AuditService auditService) {
 		this.objectMapper = objectMapper;
 		this.eventBus = eventBus;
 		this.tradeService = tradeService;
 		this.authService = authService;
+		this.auditService = auditService;
 	}
 
 	@Override
@@ -66,7 +70,8 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
-		Mono<WebSocketMessage> hello = toMessage(webSocketSession, new Envelope("HELLO", "Hello, " + session.username() + "!"));
+		Mono<WebSocketMessage> hello = auditService.record(session.id(), session.username(), "SESSION_STARTED", "")
+				.then(toMessage(webSocketSession, new Envelope("HELLO", "Hello, " + session.username() + "!")));
 
 		Flux<WebSocketMessage> events = eventBus.events()
 				.filter(session.subscriptions()::isVisible)
@@ -102,9 +107,9 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private Mono<Void> handleIncoming(String text, Session session, Sinks.Many<Envelope> directMessages) {
 		Envelope envelope = objectMapper.readValue(text, Envelope.class);
 		return switch (envelope.type()) {
-			case "CREATE_TRADE" -> handleCreateTrade(envelope, directMessages);
-			case "CONFIRM_TRADE" -> handleConfirmTrade(envelope);
-			case "CANCEL_TRADE" -> handleCancelTrade(envelope, directMessages);
+			case "CREATE_TRADE" -> handleCreateTrade(envelope, session, directMessages);
+			case "CONFIRM_TRADE" -> handleConfirmTrade(envelope, session);
+			case "CANCEL_TRADE" -> handleCancelTrade(envelope, session, directMessages);
 			case "SUBSCRIBE" -> handleSubscribe(envelope, session);
 			case "UNSUBSCRIBE" -> handleUnsubscribe(envelope, session);
 			case "GET_TRADE_HISTORY" -> handleGetTradeHistory(directMessages);
@@ -112,21 +117,21 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 		};
 	}
 
-	private Mono<Void> handleCreateTrade(Envelope envelope, Sinks.Many<Envelope> directMessages) {
+	private Mono<Void> handleCreateTrade(Envelope envelope, Session session, Sinks.Many<Envelope> directMessages) {
 		TradeRequest request = objectMapper.convertValue(envelope.payload(), TradeRequest.class);
-		tradeService.requestTrade(request)
-				.ifPresent(pending -> emitDirect(directMessages, new Envelope("TRADE_PENDING", pending)));
-		return Mono.empty();
+		return tradeService.requestTrade(request, session)
+				.doOnNext(pending -> emitDirect(directMessages, new Envelope("TRADE_PENDING", pending)))
+				.then();
 	}
 
-	private Mono<Void> handleConfirmTrade(Envelope envelope) {
-		return tradeService.confirmTrade(readPendingTradeId(envelope)).then();
+	private Mono<Void> handleConfirmTrade(Envelope envelope, Session session) {
+		return tradeService.confirmTrade(readPendingTradeId(envelope), session).then();
 	}
 
-	private Mono<Void> handleCancelTrade(Envelope envelope, Sinks.Many<Envelope> directMessages) {
-		tradeService.cancelTrade(readPendingTradeId(envelope))
-				.ifPresent(pending -> emitDirect(directMessages, new Envelope("TRADE_CANCELLED", pending)));
-		return Mono.empty();
+	private Mono<Void> handleCancelTrade(Envelope envelope, Session session, Sinks.Many<Envelope> directMessages) {
+		return tradeService.cancelTrade(readPendingTradeId(envelope), session)
+				.doOnNext(pending -> emitDirect(directMessages, new Envelope("TRADE_CANCELLED", pending)))
+				.then();
 	}
 
 	private String readPendingTradeId(Envelope envelope) {
