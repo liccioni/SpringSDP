@@ -3,7 +3,6 @@ package com.sdp.websocket;
 import com.sdp.auth.AuthService;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
-import com.sdp.market.SymbolSubscription;
 import com.sdp.session.Session;
 import com.sdp.trade.TradeRequest;
 import com.sdp.trade.TradeService;
@@ -61,13 +60,12 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 		}
 		Session session = new Session(webSocketSession.getId(), username.get());
 
-		SymbolSubscription subscriptions = new SymbolSubscription();
 		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
 		Mono<WebSocketMessage> hello = toMessage(webSocketSession, new Envelope("HELLO", "Hello, " + session.username() + "!"));
 
 		Flux<WebSocketMessage> events = eventBus.events()
-				.filter(subscriptions::isVisible)
+				.filter(session.subscriptions()::isVisible)
 				.map(event -> new Envelope(event.eventType(), event))
 				.concatMap(envelope -> toMessage(webSocketSession, envelope));
 
@@ -78,7 +76,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		Mono<Void> inbound = webSocketSession.receive()
 				.map(WebSocketMessage::getPayloadAsText)
-				.flatMap(text -> handleIncoming(text, subscriptions, directMessages))
+				.flatMap(text -> handleIncoming(text, session, directMessages))
 				.then();
 
 		return webSocketSession.send(outbound).and(inbound);
@@ -97,12 +95,12 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.map(session::textMessage);
 	}
 
-	private Mono<Void> handleIncoming(String text, SymbolSubscription subscriptions, Sinks.Many<Envelope> directMessages) {
+	private Mono<Void> handleIncoming(String text, Session session, Sinks.Many<Envelope> directMessages) {
 		Envelope envelope = objectMapper.readValue(text, Envelope.class);
 		return switch (envelope.type()) {
 			case "CREATE_TRADE" -> handleCreateTrade(envelope);
-			case "SUBSCRIBE" -> handleSubscribe(envelope, subscriptions);
-			case "UNSUBSCRIBE" -> handleUnsubscribe(envelope, subscriptions);
+			case "SUBSCRIBE" -> handleSubscribe(envelope, session);
+			case "UNSUBSCRIBE" -> handleUnsubscribe(envelope, session);
 			case "GET_TRADE_HISTORY" -> handleGetTradeHistory(directMessages);
 			default -> Mono.empty();
 		};
@@ -113,13 +111,13 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 		return tradeService.createTrade(request).then();
 	}
 
-	private Mono<Void> handleSubscribe(Envelope envelope, SymbolSubscription subscriptions) {
-		subscriptions.subscribe(readSymbol(envelope));
+	private Mono<Void> handleSubscribe(Envelope envelope, Session session) {
+		session.subscriptions().subscribe(readSymbol(envelope));
 		return Mono.empty();
 	}
 
-	private Mono<Void> handleUnsubscribe(Envelope envelope, SymbolSubscription subscriptions) {
-		subscriptions.unsubscribe(readSymbol(envelope));
+	private Mono<Void> handleUnsubscribe(Envelope envelope, Session session) {
+		session.subscriptions().unsubscribe(readSymbol(envelope));
 		return Mono.empty();
 	}
 
