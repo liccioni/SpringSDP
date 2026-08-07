@@ -5,6 +5,7 @@ import com.sdp.common.PriceTick;
 import com.sdp.eventbus.DomainEvent;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
+import com.sdp.session.Session;
 import com.sdp.trade.TradeRequest;
 import com.sdp.trade.TradeService;
 
@@ -25,8 +26,9 @@ import reactor.core.publisher.Sinks;
 /**
  * Requires a valid token (see AuthService/ADR 0016) before anything else -
  * a connection with a missing or invalid token is closed immediately, with
- * no HELLO. Once authenticated, sends a HELLO envelope, then streams
- * EventBus events and handles incoming
+ * no HELLO. Once authenticated, resolves the connection's Session (see
+ * ADR 0017) and sends a personalized HELLO envelope, then streams EventBus
+ * events and handles incoming
  * CREATE_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY envelopes for the
  * session's lifetime. Doesn't know or care which service published an event.
  *
@@ -54,37 +56,39 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	}
 
 	@Override
-	public Mono<Void> handle(WebSocketSession session) {
-		if (tokenFrom(session).flatMap(authService::username).isEmpty()) {
-			return session.close();
+	public Mono<Void> handle(WebSocketSession webSocketSession) {
+		Optional<String> username = tokenFrom(webSocketSession).flatMap(authService::username);
+		if (username.isEmpty()) {
+			return webSocketSession.close();
 		}
+		Session session = new Session(webSocketSession.getId(), username.get());
 
 		Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
 		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
-		Mono<WebSocketMessage> hello = toMessage(session, new Envelope("HELLO", "Hello from the SDP backend!"));
+		Mono<WebSocketMessage> hello = toMessage(webSocketSession, new Envelope("HELLO", "Hello, " + session.username() + "!"));
 
 		Flux<WebSocketMessage> events = eventBus.events()
 				.filter(event -> isVisible(event, subscribedSymbols))
 				.map(event -> new Envelope(event.eventType(), event))
-				.concatMap(envelope -> toMessage(session, envelope));
+				.concatMap(envelope -> toMessage(webSocketSession, envelope));
 
 		Flux<WebSocketMessage> direct = directMessages.asFlux()
-				.concatMap(envelope -> toMessage(session, envelope));
+				.concatMap(envelope -> toMessage(webSocketSession, envelope));
 
 		Flux<WebSocketMessage> outbound = hello.concatWith(events).mergeWith(direct);
 
-		Mono<Void> inbound = session.receive()
+		Mono<Void> inbound = webSocketSession.receive()
 				.map(WebSocketMessage::getPayloadAsText)
 				.flatMap(text -> handleIncoming(text, subscribedSymbols, directMessages))
 				.then();
 
-		return session.send(outbound).and(inbound);
+		return webSocketSession.send(outbound).and(inbound);
 	}
 
-	private Optional<String> tokenFrom(WebSocketSession session) {
+	private Optional<String> tokenFrom(WebSocketSession webSocketSession) {
 		return Optional.ofNullable(
-				UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
+				UriComponentsBuilder.fromUri(webSocketSession.getHandshakeInfo().getUri())
 						.build()
 						.getQueryParams()
 						.getFirst("token"));

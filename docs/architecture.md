@@ -127,6 +127,7 @@ backend/
   market/
   trade/
   auth/
+  session/
   common/
 
 frontend/

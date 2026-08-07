@@ -99,7 +99,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 
 		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
 		assertThat(envelope.type()).isEqualTo("HELLO");
-		assertThat(envelope.payload()).isEqualTo("Hello from the SDP backend!");
+		assertThat(envelope.payload()).isEqualTo("Hello, trader1!");
 	}
 
 	@Test
