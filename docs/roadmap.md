@@ -71,6 +71,26 @@ See [retro 0005](retros/0005-mvp-0.5.md) for what shipped, what was verified, an
 
 ⸻
 
+## MVP 0.6 – Identity & session
+
+Reverses two of this project's original "start simple" constraints (no framework auth, no Redis) the same way MVP 0.5 lifted "no authentication" — see CLAUDE.md's Core philosophy section.
+
+* Spring Security + Keycloak (authorization code grant), a realm with `trader`/`viewer` roles, replacing the hand-rolled auth from ADR 0016
+* Spring Session backed by Redis
+* config externalized via env vars
+
+⸻
+
+## MVP 0.7 – Service topology & messaging
+
+Reverses "no microservices." Splits the monolith into three services, connected via RabbitMQ and Spring Cloud Stream binders, migrated incrementally (strangler-fig, not a big-bang cutover) so the app stays runnable at every stage.
+
+* a pure WebSocket gateway
+* a market data service
+* a backend/trading service with database access (trade service, order service, etc.)
+
+⸻
+
 ## What's next
 
-MVP 0.1 through 0.5 are all complete. The next milestone hasn't been scoped yet — deliberately: see [retro 0005](retros/0005-mvp-0.5.md) and CLAUDE.md's project directive for why this is a planning conversation to have now rather than a default to invent silently.
+MVP 0.1 through 0.5 are done. MVP 0.6 and 0.7 are planned (12 issues across both, see the [MVP 0.6](https://github.com/liccioni/SpringSDP/milestone/6) and [MVP 0.7](https://github.com/liccioni/SpringSDP/milestone/7) GitHub milestones) but not yet started. Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#79](https://github.com/liccioni/SpringSDP/issues/79) (cancel pending trades on disconnect) are intended to land on the new backend/trading service once MVP 0.7 is done.
