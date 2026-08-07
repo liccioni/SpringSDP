@@ -8,9 +8,9 @@ spring:
     init:
       mode: always
   r2dbc:
-    url: r2dbc:postgresql://localhost:5432/sdp
-    username: sdp
-    password: sdp
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/sdp}
+    username: ${SPRING_R2DBC_USERNAME:sdp}
+    password: ${SPRING_R2DBC_PASSWORD:sdp}
     pool:
       # Disabled: with r2dbc-pool on the classpath, Spring Boot pools by
       # default and eagerly opens connections on startup (pool.initial-size
@@ -24,8 +24,11 @@ spring:
 app:
   # Frontend origin allowed to call POST /login (CORS) - a different port
   # from the backend even in local dev, so the browser enforces CORS here
-  # even though it doesn't for the WebSocket connection.
-  frontend-origin: http://localhost:5173
+  # even though it doesn't for the WebSocket connection. The default holds
+  # for Docker Compose too: the browser (not the frontend container) makes
+  # this request, so it always sees the host-published origin - see
+  # docs/protocol.md's Endpoint section.
+  frontend-origin: ${APP_FRONTEND_ORIGIN:http://localhost:5173}
   auth:
     # Config-based demo users, not a database table - see ADR 0016. These
     # are dev/demo credentials, not secrets; password hashes only, never
