@@ -55,7 +55,7 @@ Domain boundaries matter from the beginning.
 
 ## Current milestone
 
-MVP 0.4 — persistence: PostgreSQL, R2DBC, trade history, and application restart recovery, building on MVP 0.3's reactive architecture (done — see [retro 0003](docs/retros/0003-mvp-0.3.md)). Full definition and the milestones beyond it are in [Roadmap](docs/roadmap.md).
+MVP 0.5 — dealer platform foundation: authentication, sessions, per-session market data subscriptions, execution workflows, and audit events, building on MVP 0.4's persistence (done — see [retro 0004](docs/retros/0004-mvp-0.4.md)). Full definition and the milestones beyond it are in [Roadmap](docs/roadmap.md).
 
 ⸻
 
