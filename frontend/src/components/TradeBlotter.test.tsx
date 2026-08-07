@@ -35,7 +35,7 @@ describe('TradeBlotter', () => {
       )
     })
 
-    render(<TradeBlotter />)
+    render(<TradeBlotter token="test-token" />)
 
     expect(await screen.findByText('EUR/USD')).toBeInTheDocument()
     expect(await screen.findByText('BUY')).toBeInTheDocument()
@@ -73,7 +73,7 @@ describe('TradeBlotter', () => {
       )
     })
 
-    const { container } = render(<TradeBlotter />)
+    const { container } = render(<TradeBlotter token="test-token" />)
 
     await screen.findByText('USD/JPY')
     const symbolCells = Array.from(container.querySelectorAll('[col-id="symbol"]:not([role="presentation"])'))
@@ -87,7 +87,7 @@ describe('TradeBlotter', () => {
       socket.send(JSON.stringify({ type: 'PRICE_TICK', payload: { symbol: 'NZD/USD', bid: 0.61, ask: 0.6102 } }))
     })
 
-    render(<TradeBlotter />)
+    render(<TradeBlotter token="test-token" />)
 
     await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByText('NZD/USD')).not.toBeInTheDocument()
@@ -101,7 +101,7 @@ describe('TradeBlotter', () => {
       })
     })
 
-    render(<TradeBlotter />)
+    render(<TradeBlotter token="test-token" />)
 
     await waitFor(() => expect(received).toBeDefined())
     expect(JSON.parse(received!)).toEqual({ type: 'GET_TRADE_HISTORY' })
@@ -134,7 +134,7 @@ describe('TradeBlotter', () => {
       )
     })
 
-    const { container } = render(<TradeBlotter />)
+    const { container } = render(<TradeBlotter token="test-token" />)
 
     await screen.findByText('EUR/GBP')
     const symbolCells = Array.from(container.querySelectorAll('[col-id="symbol"]:not([role="presentation"])'))
@@ -175,7 +175,7 @@ describe('TradeBlotter', () => {
       )
     })
 
-    render(<TradeBlotter />)
+    render(<TradeBlotter token="test-token" />)
 
     await screen.findByText('USD/CAD')
     expect(screen.getAllByText('USD/CAD')).toHaveLength(1)

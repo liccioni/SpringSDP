@@ -25,7 +25,11 @@ function getRowId(params: GetRowIdParams<PriceTick>) {
   return params.data.symbol
 }
 
-function PriceGrid() {
+interface PriceGridProps {
+  token: string
+}
+
+function PriceGrid({ token }: PriceGridProps) {
   const [prices, setPrices] = useState<Record<string, PriceTick>>({})
   const [quantity, setQuantity] = useState<number>(DEFAULT_QUANTITY)
   const socketRef = useRef<WebSocket | null>(null)
@@ -38,6 +42,7 @@ function PriceGrid() {
           setPrices((current) => ({ ...current, [tick.symbol]: tick }))
         }
       },
+      token,
       () => {
         for (const symbol of KNOWN_SYMBOLS) {
           socket.send(JSON.stringify({ type: 'SUBSCRIBE', payload: { symbol } }))
@@ -47,7 +52,7 @@ function PriceGrid() {
     socketRef.current = socket
 
     return () => socket.close()
-  }, [])
+  }, [token])
 
   const rowData = useMemo(() => Object.values(prices), [prices])
 

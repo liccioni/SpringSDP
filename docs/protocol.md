@@ -2,6 +2,12 @@
 
 ⸻
 
+## Authentication
+
+Before opening the WebSocket connection, the client authenticates via `POST /login` — the app's one HTTP/REST endpoint, alongside the WebSocket protocol below. Request body `{ "username": "...", "password": "..." }`; response body `{ "token": "..." }` on success. See [ADR 0016](decisions/0016-authentication.md) for why this is an HTTP endpoint rather than a WS envelope, and why credentials/tokens are handled this way.
+
+The returned token is passed as a query parameter when opening the WebSocket: `ws://.../ws?token=<token>`. `SdpWebSocketHandler` rejects connections with a missing or invalid token before any envelope is exchanged — there is no unauthenticated HELLO.
+
 ## Message envelope
 
 All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010](decisions/0010-event-driven-protocol.md) for why the protocol is event-driven and envelope-shaped, and [ADR 0008](decisions/0008-use-raw-websockets.md) for why it rides on raw WebSockets rather than a higher-level messaging framework.
@@ -34,9 +40,9 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 ## Endpoint
 
-The backend exposes a single WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type.
+The backend exposes a WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type — plus the `POST /login` HTTP endpoint described above, on the same port.
 
-The frontend connects directly to this URL (no dev-server proxy) via a `VITE_WS_URL` environment variable, defaulting to `ws://localhost:8080/ws` for local `npm run dev`. This same default also applies when running under Docker Compose: the *browser*, not the frontend container, opens the WebSocket connection, so it needs the backend's host-published port rather than a Docker-internal service name.
+The frontend connects directly to the WebSocket URL (no dev-server proxy) via a `VITE_WS_URL` environment variable, defaulting to `ws://localhost:8080/ws` for local `npm run dev` (the token is appended as a query parameter at connect time, not part of this base URL). This same default also applies when running under Docker Compose: the *browser*, not the frontend container, opens the WebSocket connection, so it needs the backend's host-published port rather than a Docker-internal service name. `POST /login` uses the equivalent HTTP URL (`http://localhost:8080/login` by default) for the same reason.
 
 ⸻
 

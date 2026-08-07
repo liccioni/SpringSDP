@@ -11,6 +11,7 @@
 * Spring WebFlux — see [ADR 0007](decisions/0007-use-webflux.md)
 * Reactor
 * Raw WebSockets — see [ADR 0008](decisions/0008-use-raw-websockets.md)
+* spring-security-crypto (password hashing only, not the full Spring Security framework) — see [ADR 0016](decisions/0016-authentication.md)
 * Jackson
 * Gradle
 
@@ -125,6 +126,7 @@ backend/
   eventbus/
   market/
   trade/
+  auth/
   common/
 
 frontend/

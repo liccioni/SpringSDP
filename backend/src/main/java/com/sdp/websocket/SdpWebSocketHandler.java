@@ -1,5 +1,6 @@
 package com.sdp.websocket;
 
+import com.sdp.auth.AuthService;
 import com.sdp.common.PriceTick;
 import com.sdp.eventbus.DomainEvent;
 import com.sdp.eventbus.EventBus;
@@ -7,6 +8,7 @@ import com.sdp.market.SubscriptionRequest;
 import com.sdp.trade.TradeRequest;
 import com.sdp.trade.TradeService;
 
+import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -15,15 +17,18 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
+import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
 /**
- * Sends a HELLO envelope on connect, then streams EventBus events and handles
- * incoming CREATE_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY envelopes for
- * the session's lifetime. Doesn't know or care which service published an
- * event.
+ * Requires a valid token (see AuthService/ADR 0016) before anything else -
+ * a connection with a missing or invalid token is closed immediately, with
+ * no HELLO. Once authenticated, sends a HELLO envelope, then streams
+ * EventBus events and handles incoming
+ * CREATE_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY envelopes for the
+ * session's lifetime. Doesn't know or care which service published an event.
  *
  * Each connection starts subscribed to no symbols, so PRICE_TICK delivery is
  * scoped to that connection's own subscriptions via SUBSCRIBE/UNSUBSCRIBE.
@@ -39,15 +44,21 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private final ObjectMapper objectMapper;
 	private final EventBus eventBus;
 	private final TradeService tradeService;
+	private final AuthService authService;
 
-	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService) {
+	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService, AuthService authService) {
 		this.objectMapper = objectMapper;
 		this.eventBus = eventBus;
 		this.tradeService = tradeService;
+		this.authService = authService;
 	}
 
 	@Override
 	public Mono<Void> handle(WebSocketSession session) {
+		if (tokenFrom(session).flatMap(authService::username).isEmpty()) {
+			return session.close();
+		}
+
 		Set<String> subscribedSymbols = ConcurrentHashMap.newKeySet();
 		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
@@ -69,6 +80,14 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.then();
 
 		return session.send(outbound).and(inbound);
+	}
+
+	private Optional<String> tokenFrom(WebSocketSession session) {
+		return Optional.ofNullable(
+				UriComponentsBuilder.fromUri(session.getHandshakeInfo().getUri())
+						.build()
+						.getQueryParams()
+						.getFirst("token"));
 	}
 
 	// A PriceTick is only visible to sessions subscribed to its symbol; every
