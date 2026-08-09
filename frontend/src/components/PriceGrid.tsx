@@ -26,11 +26,7 @@ function getRowId(params: GetRowIdParams<PriceTick>) {
   return params.data.symbol
 }
 
-interface PriceGridProps {
-  token: string
-}
-
-function PriceGrid({ token }: PriceGridProps) {
+function PriceGrid() {
   const [prices, setPrices] = useState<Record<string, PriceTick>>({})
   const [quantity, setQuantity] = useState<number>(DEFAULT_QUANTITY)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
@@ -49,7 +45,6 @@ function PriceGrid({ token }: PriceGridProps) {
           setPendingTrade((current) => (current?.id === resolved.id ? null : current))
         }
       },
-      token,
       () => {
         for (const symbol of KNOWN_SYMBOLS) {
           socket.send(JSON.stringify({ type: 'SUBSCRIBE', payload: { symbol } }))
@@ -59,7 +54,7 @@ function PriceGrid({ token }: PriceGridProps) {
     socketRef.current = socket
 
     return () => socket.close()
-  }, [token])
+  }, [])
 
   const rowData = useMemo(() => Object.values(prices), [prices])
 

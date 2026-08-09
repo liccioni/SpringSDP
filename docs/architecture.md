@@ -11,7 +11,8 @@
 * Spring WebFlux — see [ADR 0007](decisions/0007-use-webflux.md)
 * Reactor
 * Raw WebSockets — see [ADR 0008](decisions/0008-use-raw-websockets.md)
-* spring-security-crypto (password hashing only, not the full Spring Security framework) — see [ADR 0016](decisions/0016-authentication.md)
+* Spring Security + Keycloak (OAuth2 authorization code grant) — see [ADR 0020](decisions/0020-keycloak-oauth2-redis-session.md), superseding [ADR 0016](decisions/0016-authentication.md)
+* Spring Session, Redis-backed — see [ADR 0020](decisions/0020-keycloak-oauth2-redis-session.md)
 * Jackson
 * Gradle
 
@@ -126,7 +127,6 @@ backend/
   eventbus/
   market/
   trade/
-  auth/
   session/
   audit/
   common/

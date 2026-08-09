@@ -1,11 +1,7 @@
 import { useEffect, useState } from 'react'
 import { connect } from '../services/socket'
 
-interface GreetingProps {
-  token: string
-}
-
-function Greeting({ token }: GreetingProps) {
+function Greeting() {
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
@@ -13,10 +9,10 @@ function Greeting({ token }: GreetingProps) {
       if (envelope.type === 'HELLO') {
         setMessage(String(envelope.payload))
       }
-    }, token)
+    })
 
     return () => socket.close()
-  }, [token])
+  }, [])
 
   return (
     <div className="status-pill" data-live={message !== null}>

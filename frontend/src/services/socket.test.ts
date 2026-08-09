@@ -23,13 +23,10 @@ describe('connect', () => {
     })
 
     const received = await new Promise((resolve) => {
-      const socket = connect(
-        (envelope) => {
-          resolve(envelope)
-          socket.close()
-        },
-        'test-token',
-      )
+      const socket = connect((envelope) => {
+        resolve(envelope)
+        socket.close()
+      })
     })
 
     expect(received).toEqual({ type: 'HELLO', payload: 'hi' })
@@ -37,32 +34,19 @@ describe('connect', () => {
 
   it('invokes onOpen once the connection is established', async () => {
     const opened = await new Promise((resolve) => {
-      const socket = connect(
-        () => {},
-        'test-token',
-        () => {
-          resolve(true)
-          socket.close()
-        },
-      )
+      const socket = connect(() => {}, () => {
+        resolve(true)
+        socket.close()
+      })
     })
 
     expect(opened).toBe(true)
   })
 
-  it('appends the token as a query parameter on the connection URL', async () => {
-    let connectedUrl: string | undefined
-    mockServer.on('connection', (socket) => {
-      connectedUrl = socket.url
-    })
-
-    await new Promise<void>((resolve) => {
-      const socket = connect(() => {}, 'abc-123', () => {
-        resolve()
-        socket.close()
-      })
-    })
-
-    expect(connectedUrl).toContain('token=abc-123')
-  })
+  // The "redirect to Keycloak login if the connection closes without ever
+  // opening" behavior isn't covered here: jsdom's window.location is
+  // unforgeable (neither reassigning it nor spying on its href setter is
+  // respected, even via Object.defineProperty), a well-documented jsdom
+  // limitation rather than something specific to this code. Live-verified
+  // instead - see the PR description.
 })

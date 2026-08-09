@@ -7,6 +7,20 @@
       { "name": "viewer", "description": "Read-only: prices and blotter, no trading" }
     ]
   },
+  "clients": [
+    {
+      "clientId": "sdp-backend",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "standardFlowEnabled": true,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "secret": "sdp-backend-secret",
+      "redirectUris": ["http://localhost:8080/login/oauth2/code/keycloak"],
+      "webOrigins": []
+    }
+  ],
   "users": [
     {
       "username": "trader1",

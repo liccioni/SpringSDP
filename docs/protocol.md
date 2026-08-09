@@ -4,17 +4,17 @@
 
 ## Authentication
 
-Before opening the WebSocket connection, the client authenticates via `POST /login` — the app's one HTTP/REST endpoint, alongside the WebSocket protocol below. Request body `{ "username": "...", "password": "..." }`; response body `{ "token": "..." }` on success. See [ADR 0016](decisions/0016-authentication.md) for why this is an HTTP endpoint rather than a WS envelope, and why credentials/tokens are handled this way.
+Before opening the WebSocket connection, the client authenticates via Keycloak (OAuth2 authorization code grant): a top-level browser navigation to `GET /oauth2/authorization/keycloak` redirects to Keycloak's hosted login page, which redirects back once the user logs in. There is no `POST /login` or custom login form — see [ADR 0020](decisions/0020-keycloak-oauth2-redis-session.md), superseding [ADR 0016](decisions/0016-authentication.md).
 
-The returned token is passed as a query parameter when opening the WebSocket: `ws://.../ws?token=<token>`. `SdpWebSocketHandler` rejects connections with a missing or invalid token before any envelope is exchanged — there is no unauthenticated HELLO.
+Login establishes a Redis-backed Spring Session, identified by a cookie for the `localhost` domain. Cookies aren't port-scoped, so this cookie is attached automatically to the WebSocket handshake even though the frontend and backend run on different ports. `SdpWebSocketHandler` requires an authenticated session on `/ws` (enforced by Spring Security's filter chain, before `handle()` is ever invoked) — an unauthenticated upgrade attempt fails with a non-`101` response (Spring Security's default entry point, a redirect toward Keycloak), never reaching a HELLO.
 
 ## Session
 
-A `Session` is created once a connection's token is validated, pairing the resolved username with that WebSocket connection's own id and owning that connection's market data subscriptions. It is 1:1 with the connection: created on successful authentication, gone when the connection closes, with no reconnect continuity. See [ADR 0017](decisions/0017-session-scope.md) for why, and for what further work (trade attribution) is expected to build on top of it.
+A `Session` is created once a connection's authenticated principal is resolved from the WebSocket handshake, pairing the username with that WebSocket connection's own id and owning that connection's market data subscriptions. It is 1:1 with the connection: created when the connection is accepted, gone when the connection closes, with no reconnect continuity. See [ADR 0017](decisions/0017-session-scope.md) for why, and for what further work (trade attribution) is expected to build on top of it. Note this is a different, connection-scoped concept from the Redis-backed Spring Session above (HTTP-level, survives across requests) — see ADR 0020 for the distinction.
 
 ## Audit trail
 
-Login attempts (`LOGIN_SUCCESS`/`LOGIN_FAILURE`), session starts (`SESSION_STARTED`), and terminal trading outcomes (`TRADE_EXECUTED`/`TRADE_CANCELLED`/`TRADE_REJECTED`) are persisted as audit events, each carrying the acting session's id (when one exists yet) and username. This is not part of the wire protocol — there's no envelope for it, and nothing in the app reads it back. See [ADR 0019](decisions/0019-audit-events.md) for why it's backend-only for now and what's deliberately not recorded (the `CREATE_TRADE`/pending step, `SUBSCRIBE`/`UNSUBSCRIBE`, session end).
+Session starts (`SESSION_STARTED`) and terminal trading outcomes (`TRADE_EXECUTED`/`TRADE_CANCELLED`/`TRADE_REJECTED`) are persisted as audit events, each carrying the acting session's id (when one exists yet) and username. This is not part of the wire protocol — there's no envelope for it, and nothing in the app reads it back. See [ADR 0019](decisions/0019-audit-events.md) for why it's backend-only for now and what's deliberately not recorded (the `CREATE_TRADE`/pending step, `SUBSCRIBE`/`UNSUBSCRIBE`, session end). `LOGIN_SUCCESS`/`LOGIN_FAILURE` audit semantics changed with the move to Keycloak (ADR 0020) and are being re-established in a follow-up issue.
 
 ## Message envelope
 
@@ -53,9 +53,9 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 ## Endpoint
 
-The backend exposes a WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type — plus the `POST /login` HTTP endpoint described above, on the same port.
+The backend exposes a WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type — plus Spring Security's own OAuth2 login endpoints (`/oauth2/authorization/keycloak`, `/login/oauth2/code/keycloak`) on the same port.
 
-The frontend connects directly to the WebSocket URL (no dev-server proxy) via a `VITE_WS_URL` environment variable, defaulting to `ws://localhost:8080/ws` for local `npm run dev` (the token is appended as a query parameter at connect time, not part of this base URL). This same default also applies when running under Docker Compose: the *browser*, not the frontend container, opens the WebSocket connection, so it needs the backend's host-published port rather than a Docker-internal service name. `POST /login` uses the equivalent HTTP URL (`http://localhost:8080/login` by default) for the same reason.
+The frontend connects directly to the WebSocket URL (no dev-server proxy) via a `VITE_WS_URL` environment variable, defaulting to `ws://localhost:8080/ws` for local `npm run dev` — identity now rides on the session cookie, not a query parameter. This same default also applies when running under Docker Compose: the *browser*, not the frontend container, opens the WebSocket connection, so it needs the backend's host-published port rather than a Docker-internal service name. If the connection fails to authenticate, `socket.ts` redirects the browser to `VITE_LOGIN_URL` (defaulting to `http://localhost:8080/oauth2/authorization/keycloak`), for the same host-published-port reason.
 
 ⸻
 

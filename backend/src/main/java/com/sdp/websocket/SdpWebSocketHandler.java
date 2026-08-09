@@ -1,7 +1,6 @@
 package com.sdp.websocket;
 
 import com.sdp.audit.AuditService;
-import com.sdp.auth.AuthService;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
 import com.sdp.session.Session;
@@ -9,25 +8,26 @@ import com.sdp.trade.PendingTradeId;
 import com.sdp.trade.TradeRequest;
 import com.sdp.trade.TradeService;
 
-import java.util.Optional;
+import java.security.Principal;
 
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
-import org.springframework.web.util.UriComponentsBuilder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
 /**
- * Requires a valid token (see AuthService/ADR 0016) before anything else -
- * a connection with a missing or invalid token is closed immediately, with
- * no HELLO. Once authenticated, resolves the connection's Session (see
- * ADR 0017), records a SESSION_STARTED audit event (see ADR 0019), and
- * sends a personalized HELLO envelope, then streams EventBus events and
- * handles incoming
+ * Requires an authenticated Spring Security session before anything else -
+ * see SecurityConfig/ADR 0020, superseding the token-based gating from ADR
+ * 0016. The security filter chain rejects an unauthenticated WS upgrade
+ * before handle() is ever invoked, so the principal from the handshake is
+ * always present here. Once authenticated, resolves the connection's
+ * Session (see ADR 0017), records a SESSION_STARTED audit event (see
+ * ADR 0019), and sends a personalized HELLO envelope, then streams EventBus
+ * events and handles incoming
  * CREATE_TRADE/CONFIRM_TRADE/CANCEL_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY
  * envelopes for the session's lifetime. Doesn't know or care which service
  * published an event.
@@ -49,24 +49,24 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private final ObjectMapper objectMapper;
 	private final EventBus eventBus;
 	private final TradeService tradeService;
-	private final AuthService authService;
 	private final AuditService auditService;
 
-	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService, AuthService authService, AuditService auditService) {
+	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService, AuditService auditService) {
 		this.objectMapper = objectMapper;
 		this.eventBus = eventBus;
 		this.tradeService = tradeService;
-		this.authService = authService;
 		this.auditService = auditService;
 	}
 
 	@Override
 	public Mono<Void> handle(WebSocketSession webSocketSession) {
-		Optional<String> username = tokenFrom(webSocketSession).flatMap(authService::username);
-		if (username.isEmpty()) {
-			return webSocketSession.close();
-		}
-		Session session = new Session(webSocketSession.getId(), username.get());
+		return webSocketSession.getHandshakeInfo().getPrincipal()
+				.map(Principal::getName)
+				.flatMap(username -> handleAuthenticated(webSocketSession, username));
+	}
+
+	private Mono<Void> handleAuthenticated(WebSocketSession webSocketSession, String username) {
+		Session session = new Session(webSocketSession.getId(), username);
 
 		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
@@ -89,14 +89,6 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.then();
 
 		return webSocketSession.send(outbound).and(inbound);
-	}
-
-	private Optional<String> tokenFrom(WebSocketSession webSocketSession) {
-		return Optional.ofNullable(
-				UriComponentsBuilder.fromUri(webSocketSession.getHandshakeInfo().getUri())
-						.build()
-						.getQueryParams()
-						.getFirst("token"));
 	}
 
 	private Mono<WebSocketMessage> toMessage(WebSocketSession session, Envelope envelope) {
