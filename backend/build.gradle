@@ -25,11 +25,14 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-json'
 	implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
 	runtimeOnly 'org.postgresql:r2dbc-postgresql'
-	// Password hashing only (BCryptPasswordEncoder) - not spring-boot-starter-security.
-	// See ADR 0016: hand-rolled auth, no filter chain/SecurityContext machinery.
-	implementation 'org.springframework.security:spring-security-crypto'
+	// Keycloak (authorization code grant) + Redis-backed Spring Session - see
+	// ADR 0020, superseding ADR 0016's hand-rolled auth.
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
+	implementation 'org.springframework.session:spring-session-data-redis'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
 	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
 	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
 	testImplementation 'org.testcontainers:testcontainers-postgresql'

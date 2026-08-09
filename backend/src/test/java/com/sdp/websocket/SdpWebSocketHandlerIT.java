@@ -1,9 +1,12 @@
 package com.sdp.websocket;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+
+import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakeException;
 
 import com.sdp.PostgresIntegrationTest;
-import com.sdp.auth.AuthService;
+import com.sdp.RedisIntegrationTest;
 import com.sdp.common.PriceTick;
 import com.sdp.common.Side;
 import com.sdp.common.Trade;
@@ -26,15 +29,32 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
+import org.springframework.http.HttpHeaders;
+import org.springframework.security.authentication.UsernamePasswordAuthenticationToken;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
+import org.springframework.security.core.context.SecurityContextImpl;
+import org.springframework.session.ReactiveSessionRepository;
+import org.springframework.session.Session;
+import org.springframework.session.data.redis.ReactiveRedisSessionRepository;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+// Authenticates test WS connections by seeding a session directly into
+// Redis (attribute "SPRING_SECURITY_CONTEXT", the same one
+// WebSessionServerSecurityContextRepository reads/writes) rather than
+// driving a real browser through Keycloak's login page - once a session
+// with a valid Authentication exists, the WS handshake's
+// getHandshakeInfo().getPrincipal() doesn't care how it got there. This
+// proves the real Redis-backed session/handshake wiring; the actual
+// Keycloak authorization-code exchange is live-verified separately (see
+// PR description), since automating a real browser-driven OAuth2 login
+// inside a JUnit test is disproportionate for this project's scale.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Tag("integration")
-class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
+class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegrationTest {
 
 	@LocalServerPort
 	private int port;
@@ -43,47 +63,63 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 	private ObjectMapper objectMapper;
 
 	@Autowired
-	private AuthService authService;
+	private ReactiveRedisSessionRepository sessionRepository;
 
-	private String token;
+	private String sessionCookie;
 
 	@BeforeEach
 	void logIn() {
-		token = authService.login("trader1", "trader1pass").block();
+		sessionCookie = authenticatedSessionId("trader1");
+	}
+
+	private String authenticatedSessionId(String username) {
+		return createAuthenticatedSession(sessionRepository, username);
+	}
+
+	// ReactiveRedisSessionRepository.RedisSession (the type createSession()
+	// and save() actually exchange) is package-private, so it can't be named
+	// here at all - a generic helper lets the compiler carry that type
+	// through as its own type variable instead.
+	private <S extends Session> String createAuthenticatedSession(ReactiveSessionRepository<S> repository, String username) {
+		var authentication = new UsernamePasswordAuthenticationToken(username, null, List.of(new SimpleGrantedAuthority("trader")));
+		return repository.createSession()
+				.flatMap(session -> {
+					session.setAttribute("SPRING_SECURITY_CONTEXT", new SecurityContextImpl(authentication));
+					return repository.save(session).thenReturn(session.getId());
+				})
+				.block(Duration.ofSeconds(5));
 	}
 
 	private URI wsUri() {
-		return URI.create("ws://localhost:" + port + "/ws?token=" + token);
+		return URI.create("ws://localhost:" + port + "/ws");
+	}
+
+	private HttpHeaders sessionCookieHeader() {
+		HttpHeaders headers = new HttpHeaders();
+		headers.add("Cookie", "SESSION=" + sessionCookie);
+		return headers;
 	}
 
 	@Test
-	void rejectsConnectionWithNoToken() throws Exception {
+	void rejectsConnectionWithNoSession() {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
-		List<String> received = new ArrayList<>();
 
-		client.execute(URI.create("ws://localhost:" + port + "/ws"),
-				session -> session.receive()
-						.map(WebSocketMessage::getPayloadAsText)
-						.doOnNext(received::add)
-						.then())
-				.block(Duration.ofSeconds(5));
-
-		assertThat(received).isEmpty();
+		// Spring Security's default entry point for an unauthenticated request
+		// to a protected path is an HTTP redirect (to Keycloak's login), not a
+		// WS-level close - the handshake itself fails with a non-101 response,
+		// which the frontend's socket.ts treats as "never opened, go log in".
+		assertThatThrownBy(() -> client.execute(wsUri(), session -> Mono.empty()).block(Duration.ofSeconds(5)))
+				.isInstanceOf(WebSocketClientHandshakeException.class);
 	}
 
 	@Test
-	void rejectsConnectionWithInvalidToken() throws Exception {
+	void rejectsConnectionWithAnInvalidSessionCookie() {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
-		List<String> received = new ArrayList<>();
+		HttpHeaders headers = new HttpHeaders();
+		headers.add("Cookie", "SESSION=not-a-real-session");
 
-		client.execute(URI.create("ws://localhost:" + port + "/ws?token=not-a-real-token"),
-				session -> session.receive()
-						.map(WebSocketMessage::getPayloadAsText)
-						.doOnNext(received::add)
-						.then())
-				.block(Duration.ofSeconds(5));
-
-		assertThat(received).isEmpty();
+		assertThatThrownBy(() -> client.execute(wsUri(), headers, session -> Mono.empty()).block(Duration.ofSeconds(5)))
+				.isInstanceOf(WebSocketClientHandshakeException.class);
 	}
 
 	@Test
@@ -91,7 +127,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		AtomicReference<String> received = new AtomicReference<>();
 
-		client.execute(wsUri(),
+		client.execute(wsUri(), sessionCookieHeader(),
 				session -> session.receive()
 						.next()
 						.map(message -> message.getPayloadAsText())
@@ -109,7 +145,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		AtomicReference<String> received = new AtomicReference<>();
 
-		client.execute(wsUri(), session -> {
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
 			Mono<Void> sendSubscribe = sendEnvelope(session, "SUBSCRIBE", new SubscriptionRequest("EUR/USD"))
 					.delaySubscription(Duration.ofMillis(200));
 
@@ -136,7 +172,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		List<String> received = new ArrayList<>();
 
-		client.execute(wsUri(),
+		client.execute(wsUri(), sessionCookieHeader(),
 				session -> session.receive()
 						.map(WebSocketMessage::getPayloadAsText)
 						.take(Duration.ofMillis(1500))
@@ -152,7 +188,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		List<String> received = new ArrayList<>();
 
-		client.execute(wsUri(), session -> {
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
 			// Subscribe and immediately unsubscribe, well inside one tick interval
 			// (1s), so no PRICE_TICK for this symbol can be delivered in between.
 			Mono<Void> subscribeThenUnsubscribe = sendEnvelope(session, "SUBSCRIBE", new SubscriptionRequest("GBP/USD"))
@@ -177,7 +213,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		AtomicReference<String> received = new AtomicReference<>();
 		TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"));
 
-		client.execute(wsUri(), session -> {
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
 			Mono<Void> sendCreateTrade = sendEnvelope(session, "CREATE_TRADE", request)
 					.delaySubscription(Duration.ofMillis(200));
 
@@ -208,7 +244,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		AtomicReference<String> received = new AtomicReference<>();
 		TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0855"), new BigDecimal("750000"));
 
-		client.execute(wsUri(), session -> {
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
 			Flux<String> incoming = session.receive().map(WebSocketMessage::getPayloadAsText).share();
 
 			Mono<Void> createThenConfirm = sendEnvelope(session, "CREATE_TRADE", request)
@@ -242,7 +278,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		AtomicReference<String> received = new AtomicReference<>();
 		TradeRequest request = new TradeRequest("GBP/USD", Side.BUY, new BigDecimal("1.2660"), new BigDecimal("300000"));
 
-		client.execute(wsUri(), session -> {
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
 			Flux<String> incoming = session.receive().map(WebSocketMessage::getPayloadAsText).share();
 
 			Mono<Void> createThenCancel = sendEnvelope(session, "CREATE_TRADE", request)
@@ -281,7 +317,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		AtomicReference<String> received = new AtomicReference<>();
 		TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("0"));
 
-		client.execute(wsUri(), session -> {
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
 			Mono<Void> sendCreateTrade = sendEnvelope(session, "CREATE_TRADE", request)
 					.delaySubscription(Duration.ofMillis(200));
 
@@ -309,7 +345,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest {
 		TradeRequest request = new TradeRequest("USD/JPY", Side.SELL, new BigDecimal("149.75"), new BigDecimal("250000"));
 		AtomicReference<String> historyMessage = new AtomicReference<>();
 
-		client.execute(wsUri(), session -> {
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
 			// .share() so both branches below correlate off one subscription to
 			// session.receive() - waiting for the actual TRADE_CREATED
 			// confirmation (proving the Postgres write committed) rather than a

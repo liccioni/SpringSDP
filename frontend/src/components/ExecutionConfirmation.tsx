@@ -7,11 +7,7 @@ const VISIBLE_DURATION_MS = 3000
 
 type Confirmation = { outcome: 'accepted'; trade: Trade } | { outcome: 'rejected'; rejection: TradeRejected }
 
-interface ExecutionConfirmationProps {
-  token: string
-}
-
-function ExecutionConfirmation({ token }: ExecutionConfirmationProps) {
+function ExecutionConfirmation() {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
 
   useEffect(() => {
@@ -21,10 +17,10 @@ function ExecutionConfirmation({ token }: ExecutionConfirmationProps) {
       } else if (envelope.type === 'TRADE_REJECTED') {
         setConfirmation({ outcome: 'rejected', rejection: envelope.payload as TradeRejected })
       }
-    }, token)
+    })
 
     return () => socket.close()
-  }, [token])
+  }, [])
 
   useEffect(() => {
     if (!confirmation) {

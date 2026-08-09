@@ -48,11 +48,7 @@ function getRowId(params: GetRowIdParams<Trade>) {
   return params.data.id
 }
 
-interface TradeBlotterProps {
-  token: string
-}
-
-function TradeBlotter({ token }: TradeBlotterProps) {
+function TradeBlotter() {
   const [trades, setTrades] = useState<Trade[]>([])
 
   useEffect(() => {
@@ -66,14 +62,13 @@ function TradeBlotter({ token }: TradeBlotterProps) {
           setTrades((current) => mergeTrades(current, history))
         }
       },
-      token,
       () => {
         socket.send(JSON.stringify({ type: 'GET_TRADE_HISTORY' }))
       },
     )
 
     return () => socket.close()
-  }, [token])
+  }, [])
 
   const rowClassRules = useMemo<RowClassRules<Trade>>(
     () => ({

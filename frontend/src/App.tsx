@@ -1,17 +1,13 @@
-import { useState } from 'react'
 import ExecutionConfirmation from './components/ExecutionConfirmation'
 import Greeting from './components/Greeting'
-import Login from './components/Login'
 import PriceGrid from './components/PriceGrid'
 import TradeBlotter from './components/TradeBlotter'
 
+// No login gating here: identity comes from the Spring Session cookie set
+// by the Keycloak redirect flow (see ADR 0020). If a WebSocket connection
+// below fails to authenticate, socket.ts redirects the browser to start
+// that flow - there's nothing for App itself to check up front.
 function App() {
-  const [token, setToken] = useState<string | null>(null)
-
-  if (token === null) {
-    return <Login onLogin={setToken} />
-  }
-
   return (
     <main className="shell">
       <header className="shell__header">
@@ -21,18 +17,18 @@ function App() {
           </span>
           <h1 className="brand__title">Single Dealer Platform</h1>
         </div>
-        <Greeting token={token} />
+        <Greeting />
       </header>
       <div className="shell__body">
         <section className="panel" aria-label="Rates">
           <h2 className="panel__title">Rates</h2>
-          <PriceGrid token={token} />
-          <ExecutionConfirmation token={token} />
+          <PriceGrid />
+          <ExecutionConfirmation />
           <p className="panel__hint">Set a quantity, then use Sell or Buy to deal at the shown price.</p>
         </section>
         <section className="panel" aria-label="Blotter">
           <h2 className="panel__title">Blotter</h2>
-          <TradeBlotter token={token} />
+          <TradeBlotter />
         </section>
       </div>
     </main>

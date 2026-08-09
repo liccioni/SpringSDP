@@ -7,8 +7,25 @@ services:
       SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/sdp
       SPRING_R2DBC_USERNAME: sdp
       SPRING_R2DBC_PASSWORD: sdp
+      SPRING_DATA_REDIS_HOST: redis
+      # Only the backend-to-Keycloak calls move to the internal service
+      # name; issuer-uri/authorization-uri keep their application.yml
+      # default (localhost:8081) since the browser always uses the
+      # host-published port. See application.yml's comment and ADR 0020.
+      KEYCLOAK_TOKEN_URI: http://keycloak:8080/realms/sdp/protocol/openid-connect/token
+      KEYCLOAK_JWK_SET_URI: http://keycloak:8080/realms/sdp/protocol/openid-connect/certs
+      KEYCLOAK_USER_INFO_URI: http://keycloak:8080/realms/sdp/protocol/openid-connect/userinfo
     depends_on:
-      - postgres
+      postgres:
+        condition: service_started
+      redis:
+        condition: service_started
+      # A plain `depends_on` only waits for the container to start, not for
+      # Keycloak's HTTP service inside it to actually be ready - Spring
+      # Security's OIDC discovery call at startup is synchronous and doesn't
+      # retry, so a not-yet-ready Keycloak fails the whole backend to start.
+      keycloak:
+        condition: service_healthy
 
   postgres:
     # postgres:17-alpine, pinned by digest for reproducible builds
@@ -43,10 +60,39 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
+      # Fixes the "iss" claim Keycloak embeds in every issued token to a
+      # single value, regardless of which path (browser via localhost:8081,
+      # or backend via the internal keycloak:8080 service name) a given
+      # request arrived on - otherwise Keycloak would derive it from each
+      # request's own Host header, and Spring Security's iss-claim
+      # validation (application.yml's issuer-uri) would only match one path.
+      #
+      # Must be a full URL, not a bare hostname: Keycloak 26 defaults to the
+      # "hostname v2" provider, which has no hostname-port/hostname-strict
+      # options (those are v1-only and are silently ignored, logged only as
+      # a startup WARNING) - the port has to be part of this URL itself, or
+      # v2 falls back to the container's actual internal port (8080) for
+      # the issuer instead of the host-published one (8081), so the token
+      # minted for the browser and the issuer expected when the backend
+      # calls userinfo/jwks disagree and every login fails with the OAuth2
+      # client's [invalid_user_info_response] Token verification failed /
+      # Keycloak's own "Invalid token issuer" error.
+      KC_HOSTNAME: http://localhost:8081
     ports:
       - "8081:8080"
     volumes:
       - ./keycloak/sdp-realm.json:/opt/keycloak/data/import/sdp-realm.json
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >
+          exec 3<>/dev/tcp/127.0.0.1/8080 &&
+          echo -en "GET /realms/sdp/.well-known/openid-configuration HTTP/1.1\r\nHost: localhost\r\nConnection: close\r\n\r\n" >&3 &&
+          timeout 3 cat <&3 | grep -q "200 OK"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
 
 volumes:
   postgres-data:
