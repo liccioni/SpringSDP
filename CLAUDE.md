@@ -55,7 +55,7 @@ Domain boundaries matter from the beginning.
 
 ## Current milestone
 
-MVP 0.1 through MVP 0.5 are done (see [retro 0005](docs/retros/0005-mvp-0.5.md)). MVP 0.6 (identity & session — Keycloak, Spring Security, Redis-backed Spring Session) is next up, followed by MVP 0.7 (service topology & messaging — splitting into a WebSocket gateway, market data service, and backend/trading service over RabbitMQ). Both reverse constraints in this file's Core philosophy section (no framework auth, no Redis, no microservices) the same deliberate way "no authentication" was lifted for MVP 0.5. See [Roadmap](docs/roadmap.md) for the full milestone breakdown and issue list.
+MVP 0.1 through MVP 0.6 are done (see [retro 0006](docs/retros/0006-mvp-0.6.md)). MVP 0.6 (identity & session — Keycloak, Spring Security, Redis-backed Spring Session) reversed this file's Core philosophy section's "no framework auth" and "no Redis" constraints the same deliberate way "no authentication" was lifted for MVP 0.5. MVP 0.7 (service topology & messaging — splitting into a WebSocket gateway, market data service, and backend/trading service over RabbitMQ) is next up, reversing "no microservices" the same way. See [Roadmap](docs/roadmap.md) for the full milestone breakdown and issue list.
 
 ⸻
 
