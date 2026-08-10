@@ -31,19 +31,11 @@ Start simple
 
 Every milestone should produce a working application.
 
-The first implementation should avoid unnecessary infrastructure.
+The first implementation avoided unnecessary infrastructure by design: no Kafka, no Redis, no authentication, no database, no microservices — everything ran locally with minimal dependencies.
 
-No Kafka.
+Those five constraints were MVP 0.1's starting point, not a permanent ruleset. Each is lifted deliberately, exactly when a milestone's actual goal needs it — never preemptively — and each reversal is recorded in the Current milestone section below rather than by silently rewriting this list. As of the current milestone: authentication, Redis, and a database are already in place (MVP 0.5/0.6); microservices are being introduced now (MVP 0.7). Kafka remains the one constraint still untouched as originally stated — MVP 0.7 uses RabbitMQ instead (see [ADR 0021](docs/decisions/0021-rabbitmq-network-segmentation.md)), so "no Kafka" specifically still holds even though "minimal messaging infrastructure" no longer does.
 
-No Redis.
-
-No authentication.
-
-No database.
-
-No microservices.
-
-Everything should run locally with minimal dependencies.
+What endures isn't the specific list above — it's the process: avoid premature complexity, add infrastructure only when a concrete milestone need justifies it, and keep the application runnable at every stage.
 
 Preserve architecture
 
