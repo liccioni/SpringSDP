@@ -1,6 +1,9 @@
 services:
   backend:
     image: sdp-backend:latest
+    networks:
+      - public
+      - internal
     ports:
       - "8080:8080"
     environment:
@@ -30,10 +33,16 @@ services:
   postgres:
     # postgres:17-alpine, pinned by digest for reproducible builds
     image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
+    networks:
+      - internal
     environment:
       POSTGRES_DB: sdp
       POSTGRES_USER: sdp
       POSTGRES_PASSWORD: sdp
+    # Published for the "without Docker" native dev path (README.md), where
+    # the backend runs as a host process rather than a container and has no
+    # other way to reach it - see ADR 0021. Everything running *inside* this
+    # compose stack still only reaches it via the internal network below.
     ports:
       - "5432:5432"
     volumes:
@@ -42,6 +51,8 @@ services:
   frontend:
     build:
       context: ./frontend
+    networks:
+      - public
     ports:
       - "5173:80"
     depends_on:
@@ -50,13 +61,33 @@ services:
   redis:
     # redis:7-alpine, pinned by digest for reproducible builds
     image: redis@sha256:e7723ff73d963f5cc6d9c4643ea3d989527a402a319239054e9472a7fb9219a2
+    networks:
+      - internal
+    # Published for the "without Docker" native dev path - see the same
+    # reasoning as postgres's ports comment above, and ADR 0021.
     ports:
       - "6379:6379"
+
+  rabbitmq:
+    # rabbitmq:4-management-alpine, pinned by digest for reproducible builds
+    image: rabbitmq@sha256:44bf7eb50fe1765885659e49ccfdc775f8e531964d979321aee380a071f49f94
+    networks:
+      - internal
+    # No AMQP port (5672) published: nothing outside this compose network
+    # speaks AMQP yet (that starts with #90+), and once it does, it'll be
+    # the future Gateway/Market Data/Backend services, which reach RabbitMQ
+    # over the internal network, not the host. The management UI (15672) is
+    # published anyway, same as this project's other admin UIs (e.g.
+    # Keycloak's own console) - see ADR 0021.
+    ports:
+      - "15672:15672"
 
   keycloak:
     # keycloak:26.7.1, pinned by digest for reproducible builds
     image: quay.io/keycloak/keycloak@sha256:f1f1f01e472c8a78df40d8f2a49a925274eda4d3d80d5f6edbb5c880ee3c01c6
     command: start-dev --import-realm
+    networks:
+      - public
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: admin
@@ -93,6 +124,22 @@ services:
       timeout: 5s
       retries: 20
       start_period: 10s
+
+networks:
+  # The Gateway (today's monolithic "backend", until #89 splits it out) and
+  # Keycloak (for the browser-driven OAuth2 redirect) - reachable from the
+  # host. See ADR 0021 for the trust-boundary reasoning.
+  public:
+  # Postgres, Redis, RabbitMQ, and the future Market Data/Backend services
+  # (#89+). Deliberately NOT marked `internal: true`: that flag disables
+  # host port publishing entirely for every service solely attached to it
+  # (a real, documented Compose behavior, not just a routing restriction) -
+  # which would break postgres/redis's own `ports:` entries, kept for the
+  # native dev path, and rabbitmq's management UI. "Internal" here means
+  # "no `ports:` entry, reached only by other containers on this network" -
+  # a convention this file's services follow, not something Compose itself
+  # enforces structurally. See ADR 0021.
+  internal:
 
 volumes:
   postgres-data:
