@@ -121,7 +121,7 @@ Side
 ## Project structure
 
 ```text
-backend/
+backend/               the monolith - still serves the full app until #94
   config/
   websocket/
   eventbus/
@@ -130,6 +130,11 @@ backend/
   session/
   audit/
   common/
+
+gateway/               skeleton from #89 - see ADR 0022
+market-data-service/   skeleton from #89 - see ADR 0022
+trading-service/       skeleton from #89 - see ADR 0022
+contracts/             shared message-contract types, see ADR 0022
 
 frontend/
   components/
@@ -149,3 +154,11 @@ docs/
 
 docker-compose.yml
 ```
+
+`gateway/`, `market-data-service/`, and `trading-service/` are independent
+Gradle builds (not subprojects of `backend/`), each with its own `gradlew`
+wrapper, consuming `contracts/` via a Gradle composite build rather than a
+multi-module project - see ADR 0022 for why. As of MVP 0.7's start, they are
+minimal skeletons proving the container/network topology works; the package
+layout under `backend/` above is what they'll eventually absorb, one flow at
+a time (#90-#93), before the monolith is decommissioned (#94).

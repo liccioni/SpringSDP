@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
-# Builds the backend's Jib image, brings up both containers via Docker
+# Builds every Jib image (backend, and the gateway/market-data-service/
+# trading-service skeletons from #89), brings up all containers via Docker
 # Compose, and opens the UI once it's responding. See README.md's "Docker
 # Compose" section for why both the Jib build and --build are needed.
 set -euo pipefail
@@ -12,6 +13,11 @@ BACKEND_URL="http://localhost:8080"
 
 echo "==> Building backend image (Jib)"
 (cd backend && ./gradlew jibDockerBuild)
+
+echo "==> Building gateway, market-data-service, trading-service images (Jib)"
+(cd gateway && ./gradlew jibDockerBuild)
+(cd market-data-service && ./gradlew jibDockerBuild)
+(cd trading-service && ./gradlew jibDockerBuild)
 
 echo "==> Starting containers"
 docker compose up --build -d

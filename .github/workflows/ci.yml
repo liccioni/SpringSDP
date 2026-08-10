@@ -11,6 +11,7 @@ jobs:
     outputs:
       backend: ${{ steps.check.outputs.backend }}
       frontend: ${{ steps.check.outputs.frontend }}
+      services: ${{ steps.check.outputs.services }}
     steps:
       - uses: actions/checkout@v4
       - id: check
@@ -24,6 +25,11 @@ jobs:
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
             echo "frontend=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ -f gateway/build.gradle ]; then
+            echo "services=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "services=false" >> "$GITHUB_OUTPUT"
           fi
 
   backend:
@@ -59,6 +65,40 @@ jobs:
         with:
           name: backend-coverage-report
           path: backend/build/reports/jacoco
+
+  # The three skeleton services from #89: gateway, market-data-service,
+  # trading-service. Structurally identical for now (bare Spring Boot app +
+  # actuator health), so one matrix job covers all three rather than
+  # duplicating the `backend` job three times. No integrationTest task -
+  # none of the three has an integration test yet (see docs/testing.md: only
+  # add one when a change genuinely crosses a boundary).
+  services:
+    needs: detect
+    if: needs.detect.outputs.services == 'true'
+    strategy:
+      matrix:
+        service: [gateway, market-data-service, trading-service]
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: ${{ matrix.service }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - run: chmod +x ./gradlew
+      - name: Unit tests
+        run: ./gradlew test
+      - name: Coverage report
+        run: ./gradlew jacocoTestReport
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ${{ matrix.service }}-coverage-report
+          path: ${{ matrix.service }}/build/reports/jacoco
 
   frontend:
     needs: detect

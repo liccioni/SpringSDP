@@ -1,0 +1,9 @@
+rootProject.name = 'gateway'
+
+// Composite build: consumes the sibling `contracts` library as
+// `implementation 'com.sdp:contracts'` in build.gradle, without publishing
+// it anywhere - Gradle substitutes it automatically by group:name since
+// contracts' own group ('com.sdp') and rootProject.name ('contracts') match.
+// Kept as an independent build (not a multi-module project alongside
+// `backend`) so `backend` stays completely untouched - see ADR 0022.
+includeBuild('../contracts')

@@ -30,6 +30,40 @@ services:
       keycloak:
         condition: service_healthy
 
+  # Skeleton services from #89 - stand up alongside the still-running
+  # monolith `backend` above to prove the multi-service shape works
+  # (strangler-fig, not a big-bang cutover). Nothing has migrated onto any
+  # of them yet; each is just a bare Spring Boot app with an actuator health
+  # endpoint. See ADR 0022 for the service boundaries and migration plan
+  # #90-#94 carry out.
+  gateway:
+    image: sdp-gateway:latest
+    networks:
+      - public
+    # Will become "the only service exposed to the browser" once #94
+    # decommissions the monolith - joins `public` now per ADR 0021's own
+    # stated consequence ("once #89 scaffolds the Gateway... only the
+    # actual Gateway joins public"). Published on a different host port
+    # than the monolith's 8080 so both can run side by side meanwhile.
+    ports:
+      - "8082:8080"
+
+  market-data-service:
+    image: sdp-market-data-service:latest
+    networks:
+      - internal
+    # No host-published port - internal-only per ADR 0021, reached only by
+    # other containers on this network (the future Gateway, once #90
+    # migrates price ticks onto RabbitMQ).
+
+  trading-service:
+    image: sdp-trading-service:latest
+    networks:
+      - internal
+    # Same reasoning as market-data-service above. R2DBC/Postgres access
+    # isn't wired yet - nothing migrates in #89, so there's no real query to
+    # justify it; lands with #92-#93 (see ADR 0022).
+
   postgres:
     # postgres:17-alpine, pinned by digest for reproducible builds
     image: postgres@sha256:742f40ea20b9ff2ff31db5458d127452988a2164df9e17441e191f3b72252193
@@ -126,12 +160,15 @@ services:
       start_period: 10s
 
 networks:
-  # The Gateway (today's monolithic "backend", until #89 splits it out) and
-  # Keycloak (for the browser-driven OAuth2 redirect) - reachable from the
-  # host. See ADR 0021 for the trust-boundary reasoning.
+  # The monolith `backend` (still dual-network - a temporary stand-in until
+  # #94 decommissions it, see ADR 0021), the real `gateway` skeleton #89
+  # scaffolded alongside it, and Keycloak (for the browser-driven OAuth2
+  # redirect) - all reachable from the host. See ADR 0021 for the
+  # trust-boundary reasoning.
   public:
-  # Postgres, Redis, RabbitMQ, and the future Market Data/Backend services
-  # (#89+). Deliberately NOT marked `internal: true`: that flag disables
+  # Postgres, Redis, RabbitMQ, and the market-data-service/trading-service
+  # skeletons #89 scaffolded. Deliberately NOT marked `internal: true`: that
+  # flag disables
   # host port publishing entirely for every service solely attached to it
   # (a real, documented Compose behavior, not just a routing restriction) -
   # which would break postgres/redis's own `ports:` entries, kept for the
