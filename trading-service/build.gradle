@@ -21,20 +21,48 @@ repositories {
 }
 
 dependencies {
-	// Will eventually own trade/, audit/, common/Trade, and R2DBC/Postgres
-	// access (see issue #89) - deliberately not wired yet. Nothing migrates
-	// in this issue, so there's no real query to prove that dependency
-	// footprint against; it lands with #92-#93 instead (see ADR 0022).
+	// Owns trade/, audit/, common/Trade's R2DBC/Postgres access, and
+	// outbound RabbitMQ broadcast publishing as of #91 (see ADR 0022's
+	// update) - the inbound CREATE_TRADE/CONFIRM_TRADE/CANCEL_TRADE
+	// request/reply that actually triggers a trade lands in #92.
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.boot:spring-boot-starter-data-r2dbc'
+	runtimeOnly 'org.postgresql:r2dbc-postgresql'
+	// No spring-cloud-dependencies BOM - same reasoning as
+	// market-data-service/build.gradle's comment.
+	implementation 'org.springframework.cloud:spring-cloud-starter-stream-rabbit:5.0.2'
 	implementation 'com.sdp:contracts'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-postgresql'
+	testImplementation 'org.testcontainers:testcontainers-r2dbc'
+	testImplementation 'org.testcontainers:testcontainers-rabbitmq'
+	testImplementation 'io.projectreactor:reactor-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'integration'
+	}
+}
+
+tasks.register('integrationTest', Test) {
+	description = 'Runs integration tests (tagged "integration").'
+	group = 'verification'
+	useJUnitPlatform {
+		includeTags 'integration'
+	}
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+	dependsOn tasks.named('integrationTest')
 }
 
 jacoco {

@@ -1,6 +1,7 @@
 package com.sdp.trade;
 
 import com.sdp.audit.AuditService;
+import com.sdp.common.Side;
 import com.sdp.common.Trade;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.MarketDataService;
@@ -11,7 +12,9 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.function.Consumer;
 
+import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
@@ -25,6 +28,14 @@ import reactor.core.publisher.Mono;
  * outcomes to the EventBus for the WebSocket layer to broadcast, and
  * records each terminal outcome as an audit event (see ADR 0019). Does not
  * generate prices.
+ *
+ * Also the monolith's temporary consumer of TRADE_CREATED/TRADE_REJECTED
+ * broadcasts from the Backend/Trading Service's RabbitMQ fanout exchanges
+ * (see ADR 0022's update, issue #91) - relays each onto the same EventBus,
+ * so SdpWebSocketHandler's existing broadcast-to-all-sessions delivery is
+ * unchanged. Nothing calls the Trading Service for a real trade yet
+ * (that's #92); this consumer exists so the outbound path is genuinely
+ * live-testable now via a manually-triggered publish.
  */
 @Service
 public class TradeService {
@@ -75,6 +86,18 @@ public class TradeService {
 
     public Flux<Trade> history() {
         return tradeRepository.findAllByOrderByTimestampAsc();
+    }
+
+    @Bean
+    public Consumer<com.sdp.contracts.Trade> tradeCreatedConsumer() {
+        return trade -> eventBus.publish(new Trade(
+                trade.id(), trade.symbol(), Side.valueOf(trade.side().name()), trade.price(), trade.quantity(), trade.timestamp()));
+    }
+
+    @Bean
+    public Consumer<com.sdp.contracts.TradeRejected> tradeRejectedConsumer() {
+        return rejected -> eventBus.publish(new TradeRejected(
+                rejected.symbol(), Side.valueOf(rejected.side().name()), rejected.price(), rejected.quantity(), rejected.reason()));
     }
 
     private PendingTrade buildPendingTrade(TradeRequest request) {

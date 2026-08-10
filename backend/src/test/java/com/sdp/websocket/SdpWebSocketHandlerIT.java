@@ -108,18 +108,23 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 		return headers;
 	}
 
-	// Simulates the Market Data Service's production side (see #90, ADR
-	// 0022) directly against the "price-ticks" fanout exchange, rather than
-	// relying on an in-process generator - there isn't one in the monolith
-	// anymore. Bypasses RabbitTemplate's default (non-JSON) message
-	// converter deliberately: Spring Cloud Stream's functional binder reads
-	// the contentType header itself to pick a converter for the
-	// priceTickConsumer function's declared parameter type.
-	private void publishPriceTick(com.sdp.contracts.PriceTick tick) {
-		byte[] body = objectMapper.writeValueAsBytes(tick);
+	// Simulates the Market Data Service's (#90) / Backend-Trading Service's
+	// (#91) production side directly against their fanout exchanges, rather
+	// than relying on an in-process generator or a real CREATE_TRADE trigger
+	// - neither exists in the monolith anymore/yet (see ADR 0022). Bypasses
+	// RabbitTemplate's default (non-JSON) message converter deliberately:
+	// Spring Cloud Stream's functional binder reads the contentType header
+	// itself to pick a converter for each consumer function's declared
+	// parameter type.
+	private void publishToFanoutExchange(String exchange, Object payload) {
+		byte[] body = objectMapper.writeValueAsBytes(payload);
 		MessageProperties properties = new MessageProperties();
 		properties.setContentType("application/json");
-		rabbitTemplate.send("price-ticks", "", new Message(body, properties));
+		rabbitTemplate.send(exchange, "", new Message(body, properties));
+	}
+
+	private void publishPriceTick(com.sdp.contracts.PriceTick tick) {
+		publishToFanoutExchange("price-ticks", tick);
 	}
 
 	@Test
@@ -314,6 +319,80 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 		assertThat(trade.side()).isEqualTo(Side.SELL);
 		assertThat(trade.price()).isEqualByComparingTo("1.0855");
 		assertThat(trade.quantity()).isEqualByComparingTo("750000");
+	}
+
+	// The next two tests prove the #91 consumer path (Backend-Trading
+	// Service -> RabbitMQ fanout -> monolith -> EventBus -> every connected
+	// session), using two connections rather than one: TRADE_CREATED/
+	// TRADE_REJECTED are broadcast to everyone (docs/protocol.md), unlike
+	// PRICE_TICK's subscription filtering, so this is the meaningful proof
+	// for this path specifically. No real CREATE_TRADE trigger exists yet
+	// (that's #92) - the Backend-Trading Service's production side is
+	// simulated the same way #90 simulated the Market Data Service's.
+	@Test
+	void tradeCreatedFromTheBackendTradingServiceReachesEveryConnectedSession() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		AtomicReference<String> receivedByFirst = new AtomicReference<>();
+		AtomicReference<String> receivedBySecond = new AtomicReference<>();
+		com.sdp.contracts.Trade published = new com.sdp.contracts.Trade(
+				java.util.UUID.randomUUID().toString(), "USD/JPY", com.sdp.contracts.Side.BUY,
+				new BigDecimal("149.60"), new BigDecimal("500000"), Instant.now());
+
+		Mono<Void> first = client.execute(wsUri(), sessionCookieHeader(),
+				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
+						.filter(text -> text.contains("TRADE_CREATED"))
+						.next().doOnNext(receivedByFirst::set).then());
+		Mono<Void> second = client.execute(wsUri(), sessionCookieHeader(),
+				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
+						.filter(text -> text.contains("TRADE_CREATED"))
+						.next().doOnNext(receivedBySecond::set).then());
+		Mono<Void> publish = Mono.fromRunnable(() -> publishToFanoutExchange("trade-created", published))
+				.delaySubscription(Duration.ofMillis(200))
+				.then();
+
+		Mono.when(first, second, publish).block(Duration.ofSeconds(5));
+
+		for (AtomicReference<String> received : List.of(receivedByFirst, receivedBySecond)) {
+			Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
+			assertThat(envelope.type()).isEqualTo("TRADE_CREATED");
+			Trade trade = objectMapper.convertValue(envelope.payload(), Trade.class);
+			assertThat(trade.id()).isEqualTo(published.id());
+			assertThat(trade.symbol()).isEqualTo("USD/JPY");
+			assertThat(trade.side()).isEqualTo(Side.BUY);
+			assertThat(trade.price()).isEqualByComparingTo("149.60");
+		}
+	}
+
+	@Test
+	void tradeRejectedFromTheBackendTradingServiceReachesEveryConnectedSession() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		AtomicReference<String> receivedByFirst = new AtomicReference<>();
+		AtomicReference<String> receivedBySecond = new AtomicReference<>();
+		com.sdp.contracts.TradeRejected published = new com.sdp.contracts.TradeRejected(
+				"USD/JPY", com.sdp.contracts.Side.SELL, new BigDecimal("149.60"), new BigDecimal("0"),
+				"quantity must be greater than zero");
+
+		Mono<Void> first = client.execute(wsUri(), sessionCookieHeader(),
+				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
+						.filter(text -> text.contains("TRADE_REJECTED"))
+						.next().doOnNext(receivedByFirst::set).then());
+		Mono<Void> second = client.execute(wsUri(), sessionCookieHeader(),
+				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
+						.filter(text -> text.contains("TRADE_REJECTED"))
+						.next().doOnNext(receivedBySecond::set).then());
+		Mono<Void> publish = Mono.fromRunnable(() -> publishToFanoutExchange("trade-rejected", published))
+				.delaySubscription(Duration.ofMillis(200))
+				.then();
+
+		Mono.when(first, second, publish).block(Duration.ofSeconds(5));
+
+		for (AtomicReference<String> received : List.of(receivedByFirst, receivedBySecond)) {
+			Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
+			assertThat(envelope.type()).isEqualTo("TRADE_REJECTED");
+			TradeRejected rejected = objectMapper.convertValue(envelope.payload(), TradeRejected.class);
+			assertThat(rejected.symbol()).isEqualTo("USD/JPY");
+			assertThat(rejected.reason()).isEqualTo("quantity must be greater than zero");
+		}
 	}
 
 	@Test

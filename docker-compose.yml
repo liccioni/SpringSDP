@@ -12,7 +12,8 @@ services:
       SPRING_R2DBC_PASSWORD: sdp
       SPRING_DATA_REDIS_HOST: redis
       # Temporary consumer of market-data-service's PRICE_TICK fanout
-      # exchange (see ADR 0022, issue #90).
+      # exchange (issue #90) and trading-service's TRADE_CREATED/
+      # TRADE_REJECTED fanout exchanges (issue #91) - see ADR 0022.
       SPRING_RABBITMQ_HOST: rabbitmq
       # Only the backend-to-Keycloak calls move to the internal service
       # name; issuer-uri/authorization-uri keep their application.yml
@@ -75,9 +76,21 @@ services:
     image: sdp-trading-service:latest
     networks:
       - internal
-    # Same reasoning as market-data-service above. R2DBC/Postgres access
-    # isn't wired yet - nothing migrates in #89, so there's no real query to
-    # justify it; lands with #92-#93 (see ADR 0022).
+    # No host-published port - same reasoning as market-data-service above.
+    # Owns R2DBC/Postgres access and publishes TRADE_CREATED/TRADE_REJECTED
+    # to RabbitMQ fanout exchanges as of #91 (see ADR 0022's update) - the
+    # same shared Postgres/schema the monolith already uses, and the
+    # monolith's temporary consumer role is documented on `backend` above.
+    environment:
+      SPRING_R2DBC_URL: r2dbc:postgresql://postgres:5432/sdp
+      SPRING_R2DBC_USERNAME: sdp
+      SPRING_R2DBC_PASSWORD: sdp
+      SPRING_RABBITMQ_HOST: rabbitmq
+    depends_on:
+      postgres:
+        condition: service_started
+      rabbitmq:
+        condition: service_started
 
   postgres:
     # postgres:17-alpine, pinned by digest for reproducible builds
