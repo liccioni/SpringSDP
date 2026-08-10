@@ -21,13 +21,18 @@ repositories {
 }
 
 dependencies {
-	// Will eventually own market/'s price generation (see issue #89) - for
-	// now just webflux + actuator, until #90 migrates the real flow.
+	// Owns market/'s price generation as of #90 - publishes each PriceTick
+	// to a RabbitMQ fanout exchange via Spring Cloud Stream's StreamBridge
+	// (see ADR 0022). No spring-cloud-dependencies BOM: it doesn't yet have
+	// a release train aligned with this project's Spring Boot 4.1.0, so the
+	// starter's version is pinned directly instead.
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	implementation 'org.springframework.cloud:spring-cloud-starter-stream-rabbit:5.0.2'
 	implementation 'com.sdp:contracts'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'io.projectreactor:reactor-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 

@@ -6,6 +6,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakeException;
 
 import com.sdp.PostgresIntegrationTest;
+import com.sdp.RabbitMqIntegrationTest;
 import com.sdp.RedisIntegrationTest;
 import com.sdp.common.PriceTick;
 import com.sdp.common.Side;
@@ -20,12 +21,16 @@ import tools.jackson.databind.ObjectMapper;
 import java.math.BigDecimal;
 import java.net.URI;
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.Message;
+import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.web.server.LocalServerPort;
@@ -54,13 +59,16 @@ import reactor.core.publisher.Mono;
 // inside a JUnit test is disproportionate for this project's scale.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Tag("integration")
-class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegrationTest {
+class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegrationTest, RabbitMqIntegrationTest {
 
 	@LocalServerPort
 	private int port;
 
 	@Autowired
 	private ObjectMapper objectMapper;
+
+	@Autowired
+	private RabbitTemplate rabbitTemplate;
 
 	@Autowired
 	private ReactiveRedisSessionRepository sessionRepository;
@@ -98,6 +106,20 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 		HttpHeaders headers = new HttpHeaders();
 		headers.add("Cookie", "SESSION=" + sessionCookie);
 		return headers;
+	}
+
+	// Simulates the Market Data Service's production side (see #90, ADR
+	// 0022) directly against the "price-ticks" fanout exchange, rather than
+	// relying on an in-process generator - there isn't one in the monolith
+	// anymore. Bypasses RabbitTemplate's default (non-JSON) message
+	// converter deliberately: Spring Cloud Stream's functional binder reads
+	// the contentType header itself to pick a converter for the
+	// priceTickConsumer function's declared parameter type.
+	private void publishPriceTick(com.sdp.contracts.PriceTick tick) {
+		byte[] body = objectMapper.writeValueAsBytes(tick);
+		MessageProperties properties = new MessageProperties();
+		properties.setContentType("application/json");
+		rabbitTemplate.send("price-ticks", "", new Message(body, properties));
 	}
 
 	@Test
@@ -144,10 +166,13 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 	void streamsPriceTicksForASubscribedSymbol() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		AtomicReference<String> received = new AtomicReference<>();
+		com.sdp.contracts.PriceTick published = new com.sdp.contracts.PriceTick(
+				"EUR/USD", new BigDecimal("1.0849"), new BigDecimal("1.0851"), Instant.now());
 
 		client.execute(wsUri(), sessionCookieHeader(), session -> {
-			Mono<Void> sendSubscribe = sendEnvelope(session, "SUBSCRIBE", new SubscriptionRequest("EUR/USD"))
-					.delaySubscription(Duration.ofMillis(200));
+			Mono<Void> sendSubscribeThenPublish = sendEnvelope(session, "SUBSCRIBE", new SubscriptionRequest("EUR/USD"))
+					.delaySubscription(Duration.ofMillis(200))
+					.doOnSuccess(v -> publishPriceTick(published));
 
 			Mono<Void> receiveTick = session.receive()
 					.map(WebSocketMessage::getPayloadAsText)
@@ -156,7 +181,7 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 					.doOnNext(received::set)
 					.then();
 
-			return sendSubscribe.and(receiveTick);
+			return sendSubscribeThenPublish.and(receiveTick);
 		}).block(Duration.ofSeconds(5));
 
 		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
@@ -164,20 +189,34 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 
 		PriceTick tick = objectMapper.convertValue(envelope.payload(), PriceTick.class);
 		assertThat(tick.symbol()).isEqualTo("EUR/USD");
-		assertThat(tick.bid()).isLessThan(tick.ask());
+		assertThat(tick.bid()).isEqualByComparingTo("1.0849");
+		assertThat(tick.ask()).isEqualByComparingTo("1.0851");
 	}
 
 	@Test
 	void receivesNoPriceTicksBeforeSubscribing() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		List<String> received = new ArrayList<>();
+		com.sdp.contracts.PriceTick published = new com.sdp.contracts.PriceTick(
+				"EUR/USD", new BigDecimal("1.0849"), new BigDecimal("1.0851"), Instant.now());
 
 		client.execute(wsUri(), sessionCookieHeader(),
-				session -> session.receive()
-						.map(WebSocketMessage::getPayloadAsText)
-						.take(Duration.ofMillis(1500))
-						.doOnNext(received::add)
-						.then())
+				session -> {
+					Mono<Void> collect = session.receive()
+							.map(WebSocketMessage::getPayloadAsText)
+							.take(Duration.ofMillis(1000))
+							.doOnNext(received::add)
+							.then();
+
+					// Never subscribed to anything on this connection - a real
+					// tick is published regardless, to prove absence is due to
+					// filtering, not just "no traffic happened to flow".
+					Mono<Void> publish = Mono.fromRunnable(() -> publishPriceTick(published))
+							.delaySubscription(Duration.ofMillis(200))
+							.then();
+
+					return collect.and(publish);
+				})
 				.block(Duration.ofSeconds(5));
 
 		assertThat(received).noneMatch(text -> text.contains("PRICE_TICK"));
@@ -187,21 +226,26 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 	void receivesNoPriceTicksForASymbolItSubscribedThenUnsubscribedFrom() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		List<String> received = new ArrayList<>();
+		com.sdp.contracts.PriceTick published = new com.sdp.contracts.PriceTick(
+				"GBP/USD", new BigDecimal("1.2649"), new BigDecimal("1.2651"), Instant.now());
 
 		client.execute(wsUri(), sessionCookieHeader(), session -> {
-			// Subscribe and immediately unsubscribe, well inside one tick interval
-			// (1s), so no PRICE_TICK for this symbol can be delivered in between.
-			Mono<Void> subscribeThenUnsubscribe = sendEnvelope(session, "SUBSCRIBE", new SubscriptionRequest("GBP/USD"))
-					.then(sendEnvelope(session, "UNSUBSCRIBE", new SubscriptionRequest("GBP/USD")));
+			// Subscribe, unsubscribe, then publish a real tick for that same
+			// symbol - deterministic proof unsubscribing actually stops
+			// delivery, rather than relying on beating a generator's interval.
+			Mono<Void> subscribeUnsubscribeThenPublish = sendEnvelope(session, "SUBSCRIBE", new SubscriptionRequest("GBP/USD"))
+					.then(sendEnvelope(session, "UNSUBSCRIBE", new SubscriptionRequest("GBP/USD")))
+					.delaySubscription(Duration.ofMillis(200))
+					.doOnSuccess(v -> publishPriceTick(published));
 
 			Mono<Void> collect = session.receive()
 					.map(WebSocketMessage::getPayloadAsText)
 					.filter(text -> text.contains("PRICE_TICK"))
-					.take(Duration.ofMillis(1500))
+					.take(Duration.ofMillis(1000))
 					.doOnNext(received::add)
 					.then();
 
-			return subscribeThenUnsubscribe.and(collect);
+			return subscribeUnsubscribeThenPublish.and(collect);
 		}).block(Duration.ofSeconds(5));
 
 		assertThat(received).noneMatch(text -> text.contains("GBP/USD"));

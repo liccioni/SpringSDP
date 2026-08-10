@@ -66,6 +66,28 @@ spring:
     redis:
       host: ${SPRING_DATA_REDIS_HOST:localhost}
       port: ${SPRING_DATA_REDIS_PORT:6379}
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+  # Temporary consumer of the Market Data Service's PRICE_TICK fanout
+  # exchange (see ADR 0022, issue #90) - relays each tick onto the
+  # in-process EventBus (com.sdp.market.MarketDataService#priceTickConsumer)
+  # so SdpWebSocketHandler's existing delivery is unchanged. No consumer
+  # group: each instance gets its own anonymous, auto-delete queue, so a
+  # future second monolith/Gateway instance would get its own copy too
+  # (moot today - single instance assumed, see ADR 0022).
+  cloud:
+    function:
+      definition: priceTickConsumer
+    stream:
+      bindings:
+        priceTickConsumer-in-0:
+          destination: price-ticks
+      rabbit:
+        bindings:
+          priceTickConsumer-in-0:
+            consumer:
+              exchangeType: fanout
 
 app:
   # Frontend origin the browser is redirected back to once oauth2Login
