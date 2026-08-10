@@ -1,0 +1,4 @@
+rootProject.name = 'trading-service'
+
+// See gateway/settings.gradle's comment - same composite-build reasoning.
+includeBuild('../contracts')
