@@ -79,9 +79,15 @@ spring:
   # auto-delete queue, so a future second monolith/Gateway instance would
   # get its own copy too (moot today - single instance assumed, see ADR
   # 0022).
+  # Also: the "trade-requests"/"trade-responses" correlated request/reply
+  # pair (issue #92) - com.sdp.trade.TradeService forwards CREATE_TRADE/
+  # CONFIRM_TRADE/CANCEL_TRADE/GET_TRADE_HISTORY out via StreamBridge (no
+  # dedicated output binding needed beyond the destination below) and
+  # tradeResponseConsumer routes each reply back to the correlationId's
+  # waiting Sinks.One - see ADR 0022's update.
   cloud:
     function:
-      definition: priceTickConsumer;tradeCreatedConsumer;tradeRejectedConsumer
+      definition: priceTickConsumer;tradeCreatedConsumer;tradeRejectedConsumer;tradeResponseConsumer
     stream:
       bindings:
         priceTickConsumer-in-0:
@@ -90,6 +96,10 @@ spring:
           destination: trade-created
         tradeRejectedConsumer-in-0:
           destination: trade-rejected
+        tradeResponseConsumer-in-0:
+          destination: trade-responses
+        tradeRequests-out-0:
+          destination: trade-requests
       rabbit:
         bindings:
           priceTickConsumer-in-0:
@@ -100,6 +110,12 @@ spring:
               exchangeType: fanout
           tradeRejectedConsumer-in-0:
             consumer:
+              exchangeType: fanout
+          tradeResponseConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeRequests-out-0:
+            producer:
               exchangeType: fanout
 
 app:
