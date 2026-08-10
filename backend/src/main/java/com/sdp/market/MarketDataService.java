@@ -3,71 +3,40 @@ package com.sdp.market;
 import com.sdp.common.PriceTick;
 import com.sdp.eventbus.EventBus;
 
-import java.math.BigDecimal;
-import java.math.RoundingMode;
-import java.time.Duration;
-import java.time.Instant;
-import java.util.Map;
 import java.util.Set;
-import java.util.concurrent.ConcurrentHashMap;
-import java.util.concurrent.ThreadLocalRandom;
+import java.util.function.Consumer;
 
-import jakarta.annotation.PostConstruct;
+import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
-import reactor.core.publisher.Flux;
-
 /**
- * Generates simulated FX price ticks on a fixed interval and publishes each one to
- * the EventBus. Does not create trades.
+ * Known tradeable symbols (used by TradeService's validation) and the
+ * monolith's temporary consumer of PRICE_TICK messages from the Market Data
+ * Service's RabbitMQ fanout exchange (see ADR 0022) - relays each one onto
+ * the in-process EventBus so SdpWebSocketHandler's existing
+ * subscription-filtered delivery to browsers is unchanged.
+ *
+ * Price generation itself moved to market-data-service as of #90; this
+ * consumer role is itself temporary too, standing in for the Gateway until
+ * #94 decommissions the monolith and WS termination moves there for good.
  */
 @Service
 public class MarketDataService {
 
-    private static final Map<String, BigDecimal> BASE_PRICES = Map.of(
-            "EUR/USD", new BigDecimal("1.0850"),
-            "GBP/USD", new BigDecimal("1.2650"),
-            "USD/JPY", new BigDecimal("149.50"));
-    private static final BigDecimal SPREAD = new BigDecimal("0.0002");
-    private static final BigDecimal MAX_STEP = new BigDecimal("0.0005");
-    private static final Duration TICK_INTERVAL = Duration.ofSeconds(1);
-    private static final int SCALE = 4;
+    private static final Set<String> KNOWN_SYMBOLS = Set.of("EUR/USD", "GBP/USD", "USD/JPY");
 
-    private final Map<String, BigDecimal> midPrices = new ConcurrentHashMap<>(BASE_PRICES);
     private final EventBus eventBus;
 
     public MarketDataService(EventBus eventBus) {
         this.eventBus = eventBus;
     }
 
-    // Started by Spring after construction, not from the constructor itself, so a
-    // plain `new MarketDataService(eventBus)` in a unit test stays side-effect-free
-    // and tests can still call priceTicks() directly under virtual time.
-    @PostConstruct
-    void startPublishing() {
-        priceTicks().subscribe(eventBus::publish);
-    }
-
     public Set<String> symbols() {
-        return BASE_PRICES.keySet();
+        return KNOWN_SYMBOLS;
     }
 
-    Flux<PriceTick> priceTicks() {
-        return Flux.interval(TICK_INTERVAL)
-                .flatMap(tick -> Flux.fromIterable(midPrices.keySet()))
-                .map(this::nextTick);
-    }
-
-    private PriceTick nextTick(String symbol) {
-        BigDecimal mid = midPrices.compute(symbol, (s, current) -> randomWalk(current));
-        BigDecimal halfSpread = SPREAD.divide(BigDecimal.valueOf(2));
-        BigDecimal bid = mid.subtract(halfSpread).setScale(SCALE, RoundingMode.HALF_UP);
-        BigDecimal ask = mid.add(halfSpread).setScale(SCALE, RoundingMode.HALF_UP);
-        return new PriceTick(symbol, bid, ask, Instant.now());
-    }
-
-    private BigDecimal randomWalk(BigDecimal current) {
-        double step = ThreadLocalRandom.current().nextDouble(-1, 1) * MAX_STEP.doubleValue();
-        return current.add(BigDecimal.valueOf(step)).setScale(SCALE, RoundingMode.HALF_UP);
+    @Bean
+    public Consumer<com.sdp.contracts.PriceTick> priceTickConsumer() {
+        return tick -> eventBus.publish(new PriceTick(tick.symbol(), tick.bid(), tick.ask(), tick.timestamp()));
     }
 }

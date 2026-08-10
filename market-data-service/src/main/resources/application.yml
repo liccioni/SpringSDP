@@ -1,6 +1,23 @@
 spring:
   application:
     name: market-data-service
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+  cloud:
+    stream:
+      bindings:
+        priceTicks-out-0:
+          destination: price-ticks
+      rabbit:
+        bindings:
+          priceTicks-out-0:
+            producer:
+              # Fanout, not the binder's topic-exchange default: every
+              # consumer (the monolith today, the Gateway once it takes over
+              # WS termination at #94) gets its own copy of every tick - see
+              # ADR 0022.
+              exchangeType: fanout
 
 management:
   endpoints:

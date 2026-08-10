@@ -11,6 +11,9 @@ services:
       SPRING_R2DBC_USERNAME: sdp
       SPRING_R2DBC_PASSWORD: sdp
       SPRING_DATA_REDIS_HOST: redis
+      # Temporary consumer of market-data-service's PRICE_TICK fanout
+      # exchange (see ADR 0022, issue #90).
+      SPRING_RABBITMQ_HOST: rabbitmq
       # Only the backend-to-Keycloak calls move to the internal service
       # name; issuer-uri/authorization-uri keep their application.yml
       # default (localhost:8081) since the browser always uses the
@@ -22,6 +25,12 @@ services:
       postgres:
         condition: service_started
       redis:
+        condition: service_started
+      # Spring Cloud Stream's RabbitMQ binder retries its own exchange/queue
+      # provisioning on startup (unlike the Keycloak OIDC discovery call
+      # below), so `service_started` is enough here - no custom healthcheck
+      # needed just for this ordering.
+      rabbitmq:
         condition: service_started
       # A plain `depends_on` only waits for the container to start, not for
       # Keycloak's HTTP service inside it to actually be ready - Spring
@@ -53,8 +62,14 @@ services:
     networks:
       - internal
     # No host-published port - internal-only per ADR 0021, reached only by
-    # other containers on this network (the future Gateway, once #90
-    # migrates price ticks onto RabbitMQ).
+    # other containers on this network. Publishes PRICE_TICK to RabbitMQ's
+    # fanout exchange as of #90 - the monolith's temporary consumer role is
+    # documented on `backend` above (see ADR 0022).
+    environment:
+      SPRING_RABBITMQ_HOST: rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_started
 
   trading-service:
     image: sdp-trading-service:latest
@@ -107,13 +122,17 @@ services:
     image: rabbitmq@sha256:44bf7eb50fe1765885659e49ccfdc775f8e531964d979321aee380a071f49f94
     networks:
       - internal
-    # No AMQP port (5672) published: nothing outside this compose network
-    # speaks AMQP yet (that starts with #90+), and once it does, it'll be
-    # the future Gateway/Market Data/Backend services, which reach RabbitMQ
-    # over the internal network, not the host. The management UI (15672) is
-    # published anyway, same as this project's other admin UIs (e.g.
-    # Keycloak's own console) - see ADR 0021.
+    # AMQP (5672) is now published too, as of #90 (see ADR 0021's "Update"
+    # note): the still-running monolith `backend` speaks AMQP as a
+    # temporary consumer, and it supports running as a native host process
+    # (README's "Without Docker" path) with no other route to RabbitMQ -
+    # the same carve-out already made for postgres/redis above, extended
+    # here for the same reason. Everything running *inside* this compose
+    # stack still reaches it via the internal network regardless. The
+    # management UI (15672) is published anyway, same as this project's
+    # other admin UIs (e.g. Keycloak's own console).
     ports:
+      - "5672:5672"
       - "15672:15672"
 
   keycloak:
