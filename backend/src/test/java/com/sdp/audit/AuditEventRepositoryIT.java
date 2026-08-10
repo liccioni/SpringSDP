@@ -38,7 +38,7 @@ class AuditEventRepositoryIT implements PostgresIntegrationTest {
 
     @Test
     void aNullSessionIdRoundTripsAsNull() {
-        AuditEvent saved = auditService.record(null, "trader1", "LOGIN_FAILURE", "invalid credentials").block(Duration.ofSeconds(5));
+        AuditEvent saved = auditService.record(null, "unknown", "LOGIN_ERROR", "invalid_token").block(Duration.ofSeconds(5));
 
         AuditEvent found = auditEventRepository.findById(saved.id()).block(Duration.ofSeconds(5));
 

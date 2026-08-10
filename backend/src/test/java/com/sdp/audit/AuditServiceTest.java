@@ -35,7 +35,7 @@ class AuditServiceTest {
     void allowsANullSessionIdForLoginTimeEvents() {
         when(auditEventRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
 
-        StepVerifier.create(service.record(null, "trader1", "LOGIN_FAILURE", "invalid credentials"))
+        StepVerifier.create(service.record(null, "trader1", "LOGIN_ERROR", "invalid_token"))
                 .assertNext(event -> assertThat(event.sessionId()).isNull())
                 .verifyComplete();
     }
