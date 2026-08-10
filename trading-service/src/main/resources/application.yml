@@ -1,6 +1,38 @@
 spring:
   application:
     name: trading-service
+  sql:
+    init:
+      mode: always
+  r2dbc:
+    url: ${SPRING_R2DBC_URL:r2dbc:postgresql://localhost:5432/sdp}
+    username: ${SPRING_R2DBC_USERNAME:sdp}
+    password: ${SPRING_R2DBC_PASSWORD:sdp}
+    pool:
+      # Disabled - same reasoning as backend/application.yml's comment:
+      # keeps the plain `test` task CI-safe with no live Postgres needed
+      # just to load the Spring context.
+      enabled: false
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+  cloud:
+    stream:
+      bindings:
+        tradeCreated-out-0:
+          destination: trade-created
+        tradeRejected-out-0:
+          destination: trade-rejected
+      rabbit:
+        bindings:
+          tradeCreated-out-0:
+            producer:
+              # Fanout: every consumer (the monolith today, the Gateway
+              # eventually) gets its own copy - see ADR 0022.
+              exchangeType: fanout
+          tradeRejected-out-0:
+            producer:
+              exchangeType: fanout
 
 management:
   endpoints:

@@ -70,22 +70,35 @@ spring:
     host: ${SPRING_RABBITMQ_HOST:localhost}
     port: ${SPRING_RABBITMQ_PORT:5672}
   # Temporary consumer of the Market Data Service's PRICE_TICK fanout
-  # exchange (see ADR 0022, issue #90) - relays each tick onto the
-  # in-process EventBus (com.sdp.market.MarketDataService#priceTickConsumer)
-  # so SdpWebSocketHandler's existing delivery is unchanged. No consumer
-  # group: each instance gets its own anonymous, auto-delete queue, so a
-  # future second monolith/Gateway instance would get its own copy too
-  # (moot today - single instance assumed, see ADR 0022).
+  # exchange (issue #90) and the Backend/Trading Service's TRADE_CREATED/
+  # TRADE_REJECTED fanout exchanges (issue #91) - see ADR 0022. Relays each
+  # onto the in-process EventBus (com.sdp.market.MarketDataService and
+  # com.sdp.trade.TradeService's own *Consumer @Bean methods) so
+  # SdpWebSocketHandler's existing delivery is unchanged. No consumer
+  # group on any of these: each instance gets its own anonymous,
+  # auto-delete queue, so a future second monolith/Gateway instance would
+  # get its own copy too (moot today - single instance assumed, see ADR
+  # 0022).
   cloud:
     function:
-      definition: priceTickConsumer
+      definition: priceTickConsumer;tradeCreatedConsumer;tradeRejectedConsumer
     stream:
       bindings:
         priceTickConsumer-in-0:
           destination: price-ticks
+        tradeCreatedConsumer-in-0:
+          destination: trade-created
+        tradeRejectedConsumer-in-0:
+          destination: trade-rejected
       rabbit:
         bindings:
           priceTickConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeCreatedConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeRejectedConsumer-in-0:
             consumer:
               exchangeType: fanout
 

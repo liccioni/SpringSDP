@@ -66,12 +66,12 @@ jobs:
           name: backend-coverage-report
           path: backend/build/reports/jacoco
 
-  # The three skeleton services from #89: gateway, market-data-service,
-  # trading-service. Structurally identical for now (bare Spring Boot app +
-  # actuator health), so one matrix job covers all three rather than
-  # duplicating the `backend` job three times. No integrationTest task -
-  # none of the three has an integration test yet (see docs/testing.md: only
-  # add one when a change genuinely crosses a boundary).
+  # gateway, market-data-service, trading-service (#89). One matrix job
+  # covers all three rather than duplicating the `backend` job three times.
+  # Only trading-service has an integration task registered so far - it's
+  # the only one with a test tagged "integration" (see docs/testing.md:
+  # only add the task/tests when a change genuinely crosses a boundary).
+  # gateway/market-data-service stay on unit tests only until they need one.
   services:
     needs: detect
     if: needs.detect.outputs.services == 'true'
@@ -92,6 +92,9 @@ jobs:
       - run: chmod +x ./gradlew
       - name: Unit tests
         run: ./gradlew test
+      - name: Integration tests
+        if: matrix.service == 'trading-service'
+        run: ./gradlew integrationTest
       - name: Coverage report
         run: ./gradlew jacocoTestReport
       - uses: actions/upload-artifact@v4
