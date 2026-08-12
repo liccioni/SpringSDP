@@ -76,7 +76,9 @@ describe('TradeBlotter', () => {
     const { container } = render(<TradeBlotter />)
 
     await screen.findByText('USD/JPY')
-    const symbolCells = Array.from(container.querySelectorAll('[col-id="symbol"]:not([role="presentation"])'))
+    const symbolCells = Array.from(
+      container.querySelectorAll('[col-id="symbol"]:not([role="presentation"]):not(.ag-floating-filter)'),
+    )
     const symbolOrder = symbolCells.map((cell) => cell.textContent?.trim())
 
     expect(symbolOrder).toEqual(['Symbol', 'USD/JPY', 'GBP/USD'])
@@ -137,7 +139,9 @@ describe('TradeBlotter', () => {
     const { container } = render(<TradeBlotter />)
 
     await screen.findByText('EUR/GBP')
-    const symbolCells = Array.from(container.querySelectorAll('[col-id="symbol"]:not([role="presentation"])'))
+    const symbolCells = Array.from(
+      container.querySelectorAll('[col-id="symbol"]:not([role="presentation"]):not(.ag-floating-filter)'),
+    )
     const symbolOrder = symbolCells.map((cell) => cell.textContent?.trim())
 
     expect(symbolOrder).toEqual(['Symbol', 'EUR/GBP', 'AUD/USD'])
