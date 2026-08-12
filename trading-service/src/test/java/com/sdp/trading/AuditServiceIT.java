@@ -4,6 +4,7 @@ import com.sdp.PostgresIntegrationTest;
 import com.sdp.RabbitMqIntegrationTest;
 import com.sdp.audit.AuditEvent;
 import com.sdp.audit.AuditEventRepository;
+import com.sdp.contracts.Logout;
 import com.sdp.contracts.SessionStarted;
 
 import java.time.Duration;
@@ -72,10 +73,33 @@ class AuditServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
         assertThat(found.username()).isEqualTo(username);
     }
 
+    @Test
+    void logoutPublishedOnTheFanoutExchangeIsPersisted() {
+        String username = "trader-" + UUID.randomUUID();
+        publish(new Logout(username));
+
+        AuditEvent found = auditEventRepository.findAll()
+                .filter(event -> username.equals(event.username()) && "LOGOUT".equals(event.eventType()))
+                .next()
+                .repeatWhenEmpty(attempts -> attempts.delayElements(Duration.ofMillis(200)).take(25))
+                .block(Duration.ofSeconds(10));
+
+        assertThat(found).isNotNull();
+        assertThat(found.sessionId()).isNull();
+        assertThat(found.username()).isEqualTo(username);
+    }
+
     private void publish(SessionStarted event) {
         byte[] body = objectMapper.writeValueAsBytes(event);
         MessageProperties properties = new MessageProperties();
         properties.setContentType("application/json");
         rabbitTemplate.send("session-started", "", new Message(body, properties));
+    }
+
+    private void publish(Logout event) {
+        byte[] body = objectMapper.writeValueAsBytes(event);
+        MessageProperties properties = new MessageProperties();
+        properties.setContentType("application/json");
+        rabbitTemplate.send("logout", "", new Message(body, properties));
     }
 }

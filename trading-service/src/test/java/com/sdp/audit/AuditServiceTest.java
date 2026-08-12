@@ -2,6 +2,7 @@ package com.sdp.audit;
 
 import com.sdp.contracts.LoginError;
 import com.sdp.contracts.LoginSuccess;
+import com.sdp.contracts.Logout;
 import com.sdp.contracts.SessionStarted;
 
 import java.util.function.Consumer;
@@ -75,5 +76,19 @@ class AuditServiceTest {
         assertThat(saved.username()).isEqualTo("unknown");
         assertThat(saved.eventType()).isEqualTo("LOGIN_ERROR");
         assertThat(saved.detail()).isEqualTo("invalid_token");
+    }
+
+    @Test
+    void logoutConsumerPersistsWithNoSessionId() {
+        when(auditEventRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        service.logoutConsumer().accept(new Logout("trader1"));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AuditEvent.class);
+        org.mockito.Mockito.verify(auditEventRepository).save(captor.capture());
+        AuditEvent saved = captor.getValue();
+        assertThat(saved.sessionId()).isNull();
+        assertThat(saved.username()).isEqualTo("trader1");
+        assertThat(saved.eventType()).isEqualTo("LOGOUT");
     }
 }

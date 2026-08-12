@@ -31,7 +31,7 @@ spring:
   # AuditService, no reply needed.
   cloud:
     function:
-      definition: tradeRequestConsumer;sessionStartedConsumer;loginSuccessConsumer;loginErrorConsumer
+      definition: tradeRequestConsumer;sessionStartedConsumer;loginSuccessConsumer;loginErrorConsumer;logoutConsumer
     stream:
       bindings:
         tradeRequestConsumer-in-0:
@@ -48,6 +48,8 @@ spring:
           destination: login-success
         loginErrorConsumer-in-0:
           destination: login-error
+        logoutConsumer-in-0:
+          destination: logout
       rabbit:
         bindings:
           tradeRequestConsumer-in-0:
@@ -71,6 +73,9 @@ spring:
             consumer:
               exchangeType: fanout
           loginErrorConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          logoutConsumer-in-0:
             consumer:
               exchangeType: fanout
 
