@@ -87,7 +87,7 @@ public class TradeService {
 
     private Mono<Void> handleCreateTrade(TradeCommand command) {
         TradeRequest request = objectMapper.convertValue(command.payload(), TradeRequest.class);
-        Optional<String> rejectionReason = validate(request);
+        Optional<String> rejectionReason = validate(request, command.roles());
         if (rejectionReason.isPresent()) {
             return reject(request, command.submittedBy(), rejectionReason.get())
                     .then(replyTo(command, "TRADE_REJECTED", null));
@@ -144,7 +144,10 @@ public class TradeService {
         return objectMapper.convertValue(command.payload(), PendingTradeId.class).id();
     }
 
-    private Optional<String> validate(TradeRequest request) {
+    private Optional<String> validate(TradeRequest request, Set<String> roles) {
+        if (!roles.contains("trader")) {
+            return Optional.of("role does not permit trading");
+        }
         if (request.quantity().signum() <= 0) {
             return Optional.of("quantity must be greater than zero");
         }

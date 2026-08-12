@@ -10,6 +10,7 @@ import com.sdp.contracts.TradeRejected;
 import com.sdp.contracts.TradeRequest;
 
 import java.math.BigDecimal;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.BeforeEach;
@@ -44,7 +45,11 @@ class TradeServiceTest {
     }
 
     private TradeCommand command(String type, Object payload) {
-        return new TradeCommand(UUID.randomUUID().toString(), "trader1", type, payload);
+        return command(type, payload, Set.of("trader"));
+    }
+
+    private TradeCommand command(String type, Object payload, Set<String> roles) {
+        return new TradeCommand(UUID.randomUUID().toString(), "trader1", roles, type, payload);
     }
 
     private TradeCommandResult captureReply() {
@@ -78,6 +83,19 @@ class TradeServiceTest {
         assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
         verify(streamBridge).send(eq("tradeRejected-out-0"), any(TradeRejected.class));
         verify(auditService).record(eq(null), eq("trader1"), eq("TRADE_REJECTED"), any());
+    }
+
+    @Test
+    void createTradeFromAViewerRoleRejectsWithoutHoldingAPending() {
+        TradeCommand command = command(
+                "CREATE_TRADE", new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000")), Set.of("viewer"));
+
+        service.handle(command).block();
+
+        TradeCommandResult reply = captureReply();
+        assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
+        verify(streamBridge).send(eq("tradeRejected-out-0"), any(TradeRejected.class));
+        verify(tradeRepository, never()).save(any());
     }
 
     @Test

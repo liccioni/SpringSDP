@@ -8,9 +8,13 @@ import com.sdp.trade.TradeRequest;
 import com.sdp.trade.TradeService;
 
 import java.security.Principal;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 import tools.jackson.databind.ObjectMapper;
 import org.springframework.cloud.stream.function.StreamBridge;
+import org.springframework.security.core.Authentication;
+import org.springframework.security.core.GrantedAuthority;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
@@ -65,12 +69,18 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	@Override
 	public Mono<Void> handle(WebSocketSession webSocketSession) {
 		return webSocketSession.getHandshakeInfo().getPrincipal()
-				.map(Principal::getName)
-				.flatMap(username -> handleAuthenticated(webSocketSession, username));
+				.flatMap(principal -> handleAuthenticated(webSocketSession, principal));
 	}
 
-	private Mono<Void> handleAuthenticated(WebSocketSession webSocketSession, String username) {
-		Session session = new Session(webSocketSession.getId(), username);
+	// The handshake principal is an OAuth2AuthenticationToken (Authentication
+	// extends Principal), carrying the Keycloak realm roles mapped onto it by
+	// KeycloakRealmRoleOidcUserService - see ADR 0025. Threaded onto Session
+	// so trading-service can authorize CREATE_TRADE itself.
+	private Mono<Void> handleAuthenticated(WebSocketSession webSocketSession, Principal principal) {
+		Set<String> roles = principal instanceof Authentication authentication
+				? authentication.getAuthorities().stream().map(GrantedAuthority::getAuthority).collect(Collectors.toSet())
+				: Set.of();
+		Session session = new Session(webSocketSession.getId(), principal.getName(), roles);
 
 		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
