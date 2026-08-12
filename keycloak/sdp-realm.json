@@ -1,6 +1,7 @@
 {
   "realm": "sdp",
   "enabled": true,
+  "sslRequired": "none",
   "roles": {
     "realm": [
       { "name": "trader", "description": "Full access: subscribe, create/confirm/cancel trades, view the blotter" },
