@@ -1,164 +1,176 @@
 package com.sdp.trade;
 
-import com.sdp.audit.AuditService;
 import com.sdp.common.Side;
 import com.sdp.common.Trade;
+import com.sdp.contracts.PendingTradeId;
+import com.sdp.contracts.TradeCommand;
+import com.sdp.contracts.TradeCommandResult;
 import com.sdp.eventbus.EventBus;
-import com.sdp.market.MarketDataService;
 import com.sdp.session.Session;
 
 import java.math.BigDecimal;
+import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
+import java.util.UUID;
 
-import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.cloud.stream.function.StreamBridge;
 
-import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
+
+import tools.jackson.databind.ObjectMapper;
+import tools.jackson.databind.json.JsonMapper;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
-import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
+/**
+ * TradeService is now a pure forwarding adapter (see ADR 0022's update,
+ * issue #92) - these tests exercise the request/reply plumbing itself
+ * (correlationId round-trip via the tradeResponseConsumer @Bean, simulating
+ * the Backend/Trading Service's reply) rather than trading-domain logic
+ * (validation, persistence - that moved to trading-service's own
+ * TradeServiceTest).
+ */
 class TradeServiceTest {
 
     private final EventBus eventBus = new EventBus();
-    private final TradeRepository tradeRepository = mock(TradeRepository.class);
-    private final AuditService auditService = mock(AuditService.class);
-    private final TradeService service = new TradeService(new MarketDataService(eventBus), eventBus, tradeRepository, auditService);
+    private final StreamBridge streamBridge = mock(StreamBridge.class);
+    private final ObjectMapper objectMapper = JsonMapper.builder().build();
+    private final TradeService service = new TradeService(eventBus, streamBridge, objectMapper);
     private final Session session = new Session("connection-1", "trader1");
 
-    @BeforeEach
-    void echoBackWhateverIsSaved() {
-        when(tradeRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
-        when(auditService.record(any(), any(), any(), any())).thenReturn(Mono.empty());
+    private TradeCommand captureSentCommand() {
+        ArgumentCaptor<TradeCommand> captor = ArgumentCaptor.forClass(TradeCommand.class);
+        verify(streamBridge).send(eq("tradeRequests-out-0"), captor.capture());
+        return captor.getValue();
     }
 
     @Test
-    void requestTradeHoldsAPendingTradeWithoutPersistingIt() {
+    void requestTradeSendsACreateTradeCommandAndResolvesFromThePendingReply() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
 
-        PendingTrade pending = service.requestTrade(request, session).block();
+        var resultMono = service.requestTrade(request, session);
+        TradeCommand sent = captureSentCommand();
+        assertThat(sent.type()).isEqualTo("CREATE_TRADE");
+        assertThat(sent.submittedBy()).isEqualTo("trader1");
 
-        assertThat(pending.id()).isNotBlank();
-        assertThat(pending.symbol()).isEqualTo("EUR/USD");
-        assertThat(pending.side()).isEqualTo(Side.BUY);
-        assertThat(pending.price()).isEqualTo(request.price());
-        assertThat(pending.quantity()).isEqualTo(request.quantity());
-        verify(tradeRepository, never()).save(any());
+        com.sdp.contracts.PendingTrade pending = new com.sdp.contracts.PendingTrade(
+                UUID.randomUUID().toString(), "EUR/USD", com.sdp.contracts.Side.BUY, request.price(), request.quantity(), Instant.now());
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_PENDING", pending));
+
+        PendingTrade result = resultMono.block(Duration.ofSeconds(2));
+        assertThat(result.id()).isEqualTo(pending.id());
+        assertThat(result.symbol()).isEqualTo("EUR/USD");
+        assertThat(result.side()).isEqualTo(Side.BUY);
     }
 
     @Test
-    void eachPendingTradeGetsAUniqueId() {
-        TradeRequest request = new TradeRequest("USD/JPY", Side.BUY, new BigDecimal("149.50"), new BigDecimal("100000"));
-
-        PendingTrade first = service.requestTrade(request, session).block();
-        PendingTrade second = service.requestTrade(request, session).block();
-
-        assertThat(first.id()).isNotEqualTo(second.id());
-    }
-
-    @Test
-    void confirmTradePersistsAndReturnsTheTrade() {
-        TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
-        PendingTrade pending = service.requestTrade(request, session).block();
-
-        Trade trade = service.confirmTrade(pending.id(), session).block();
-
-        assertThat(trade.id()).isEqualTo(pending.id());
-        assertThat(trade.symbol()).isEqualTo("EUR/USD");
-        assertThat(trade.side()).isEqualTo(Side.BUY);
-        assertThat(trade.price()).isEqualTo(request.price());
-        assertThat(trade.quantity()).isEqualTo(request.quantity());
-        assertThat(trade.timestamp()).isNotNull();
-    }
-
-    @Test
-    void confirmTradeEmitsOnEventBus() {
-        TradeRequest request = new TradeRequest("GBP/USD", Side.SELL, new BigDecimal("1.2650"), new BigDecimal("500000"));
-        PendingTrade pending = service.requestTrade(request, session).block();
-
-        StepVerifier.create(eventBus.events())
-                .then(() -> service.confirmTrade(pending.id(), session).subscribe())
-                .assertNext(event -> {
-                    assertThat(event).isInstanceOf(Trade.class);
-                    assertThat(((Trade) event).symbol()).isEqualTo("GBP/USD");
-                })
-                .thenCancel()
-                .verify();
-    }
-
-    @Test
-    void confirmTradeWithAnUnknownIdDoesNothing() {
-        Trade trade = service.confirmTrade("not-a-pending-trade", session).block();
-
-        assertThat(trade).isNull();
-        verify(tradeRepository, never()).save(any());
-    }
-
-    @Test
-    void cancelTradeRemovesThePendingTrade() {
-        TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("1000000"));
-        PendingTrade pending = service.requestTrade(request, session).block();
-
-        PendingTrade cancelled = service.cancelTrade(pending.id(), session).block();
-
-        assertThat(cancelled).isEqualTo(pending);
-        assertThat(service.confirmTrade(pending.id(), session).block()).isNull();
-    }
-
-    @Test
-    void cancelTradeWithAnUnknownIdReturnsEmpty() {
-        assertThat(service.cancelTrade("not-a-pending-trade", session).block()).isNull();
-    }
-
-    @Test
-    void rejectsATradeWithNonPositiveQuantity() {
+    void requestTradeResolvesEmptyWhenTheReplyIsARejection() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("0"));
 
-        assertThat(service.requestTrade(request, session).block()).isNull();
+        var resultMono = service.requestTrade(request, session);
+        TradeCommand sent = captureSentCommand();
+
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_REJECTED", null));
+
+        assertThat(resultMono.block(Duration.ofSeconds(2))).isNull();
     }
 
     @Test
-    void rejectsATradeWithNonPositiveQuantityAndEmitsOnEventBus() {
-        TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0851"), new BigDecimal("-100"));
+    void confirmTradeSendsAConfirmTradeCommandAndResolvesImmediatelyWithoutAReply() {
+        Trade trade = service.confirmTrade("pending-1", session).block(Duration.ofSeconds(2));
+
+        assertThat(trade).isNull();
+        ArgumentCaptor<TradeCommand> captor = ArgumentCaptor.forClass(TradeCommand.class);
+        verify(streamBridge).send(eq("tradeRequests-out-0"), captor.capture());
+        TradeCommand sent = captor.getValue();
+        assertThat(sent.type()).isEqualTo("CONFIRM_TRADE");
+        assertThat(objectMapper.convertValue(sent.payload(), PendingTradeId.class).id()).isEqualTo("pending-1");
+    }
+
+    @Test
+    void cancelTradeResolvesFromTheCancelledReply() {
+        var resultMono = service.cancelTrade("pending-1", session);
+        TradeCommand sent = captureSentCommand();
+        assertThat(sent.type()).isEqualTo("CANCEL_TRADE");
+
+        com.sdp.contracts.PendingTrade pending = new com.sdp.contracts.PendingTrade(
+                "pending-1", "GBP/USD", com.sdp.contracts.Side.SELL, new BigDecimal("1.2650"), new BigDecimal("500000"), Instant.now());
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_CANCELLED", pending));
+
+        PendingTrade result = resultMono.block(Duration.ofSeconds(2));
+        assertThat(result.id()).isEqualTo("pending-1");
+    }
+
+    @Test
+    void cancelTradeResolvesEmptyOnANoopReply() {
+        var resultMono = service.cancelTrade("unknown", session);
+        TradeCommand sent = captureSentCommand();
+
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "NOOP", null));
+
+        assertThat(resultMono.block(Duration.ofSeconds(2))).isNull();
+    }
+
+    @Test
+    void historyResolvesFromTheHistoryReply() {
+        var historyFlux = service.history();
+        TradeCommand sent = captureSentCommand();
+        assertThat(sent.type()).isEqualTo("GET_TRADE_HISTORY");
+
+        com.sdp.contracts.Trade older = new com.sdp.contracts.Trade(
+                "1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.08"), new BigDecimal("100"), Instant.parse("2026-01-01T00:00:00Z"));
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_HISTORY", List.of(older)));
+
+        StepVerifier.create(historyFlux)
+                .assertNext(trade -> {
+                    assertThat(trade.id()).isEqualTo("1");
+                    assertThat(trade.symbol()).isEqualTo("EUR/USD");
+                    assertThat(trade.side()).isEqualTo(Side.BUY);
+                })
+                .verifyComplete();
+    }
+
+    @Test
+    void tradeCreatedConsumerRelaysOntoTheEventBus() {
+        com.sdp.contracts.Trade trade = new com.sdp.contracts.Trade(
+                "1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"), Instant.now());
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.requestTrade(request, session).subscribe())
+                .then(() -> service.tradeCreatedConsumer().accept(trade))
                 .assertNext(event -> {
-                    assertThat(event).isInstanceOf(TradeRejected.class);
-                    TradeRejected rejection = (TradeRejected) event;
-                    assertThat(rejection.symbol()).isEqualTo("EUR/USD");
-                    assertThat(rejection.reason()).isEqualTo("quantity must be greater than zero");
+                    assertThat(event).isInstanceOf(Trade.class);
+                    assertThat(((Trade) event).symbol()).isEqualTo("EUR/USD");
                 })
                 .thenCancel()
                 .verify();
     }
 
     @Test
-    void rejectsATradeForAnUnknownSymbol() {
-        TradeRequest request = new TradeRequest("XAU/USD", Side.BUY, new BigDecimal("2000"), new BigDecimal("100"));
+    void tradeRejectedConsumerRelaysOntoTheEventBus() {
+        com.sdp.contracts.TradeRejected rejected = new com.sdp.contracts.TradeRejected(
+                "EUR/USD", com.sdp.contracts.Side.SELL, new BigDecimal("1.0850"), new BigDecimal("0"), "quantity must be greater than zero");
 
         StepVerifier.create(eventBus.events())
-                .then(() -> service.requestTrade(request, session).subscribe())
-                .assertNext(event -> assertThat(((TradeRejected) event).reason()).isEqualTo("unknown symbol: XAU/USD"))
+                .then(() -> service.tradeRejectedConsumer().accept(rejected))
+                .assertNext(event -> {
+                    assertThat(event).isInstanceOf(TradeRejected.class);
+                    assertThat(((TradeRejected) event).reason()).isEqualTo("quantity must be greater than zero");
+                })
                 .thenCancel()
                 .verify();
     }
 
     @Test
-    void historyReturnsPersistedTradesInTimestampOrder() {
-        Trade older = new Trade("1", "EUR/USD", Side.BUY, new BigDecimal("1.08"), new BigDecimal("100"), Instant.parse("2026-01-01T00:00:00Z"));
-        Trade newer = new Trade("2", "EUR/USD", Side.SELL, new BigDecimal("1.09"), new BigDecimal("200"), Instant.parse("2026-01-01T00:01:00Z"));
-        when(tradeRepository.findAllByOrderByTimestampAsc()).thenReturn(Flux.just(older, newer));
-
-        StepVerifier.create(service.history())
-                .expectNext(older)
-                .expectNext(newer)
-                .verifyComplete();
+    void aReplyForAnUnknownCorrelationIdIsIgnored() {
+        service.tradeResponseConsumer().accept(new TradeCommandResult("unknown-correlation-id", "TRADE_PENDING", null));
+        // No exception, nothing to assert beyond "didn't blow up" - there's
+        // no pending sink for this id (already timed out, or never existed).
     }
 }

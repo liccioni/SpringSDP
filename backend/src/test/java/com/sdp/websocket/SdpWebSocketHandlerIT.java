@@ -71,13 +71,31 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 	private RabbitTemplate rabbitTemplate;
 
 	@Autowired
+	private org.springframework.amqp.core.AmqpAdmin amqpAdmin;
+
+	@Autowired
 	private ReactiveRedisSessionRepository sessionRepository;
 
 	private String sessionCookie;
+	private FakeTradingService fakeTradingService;
 
 	@BeforeEach
 	void logIn() {
 		sessionCookie = authenticatedSessionId("trader1");
+	}
+
+	// Stands in for the real Backend/Trading Service (see #92, ADR 0022's
+	// update) - this test only starts the monolith's own Spring context, so
+	// nothing else would answer CREATE_TRADE/CONFIRM_TRADE/CANCEL_TRADE/
+	// GET_TRADE_HISTORY without it.
+	@BeforeEach
+	void startFakeTradingService() {
+		fakeTradingService = new FakeTradingService(rabbitTemplate.getConnectionFactory(), amqpAdmin, rabbitTemplate, objectMapper);
+	}
+
+	@org.junit.jupiter.api.AfterEach
+	void stopFakeTradingService() {
+		fakeTradingService.stop();
 	}
 
 	private String authenticatedSessionId(String username) {

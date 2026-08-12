@@ -8,7 +8,6 @@ import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Set;
 
 import org.junit.jupiter.api.Test;
 
@@ -16,15 +15,8 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class MarketDataServiceTest {
 
-    private static final Set<String> KNOWN_SYMBOLS = Set.of("EUR/USD", "GBP/USD", "USD/JPY");
-
     private final EventBus eventBus = new EventBus();
     private final MarketDataService service = new MarketDataService(eventBus);
-
-    @Test
-    void knowsTheTradeableSymbols() {
-        assertThat(service.symbols()).isEqualTo(KNOWN_SYMBOLS);
-    }
 
     @Test
     void priceTickConsumerRelaysOntoTheEventBus() {

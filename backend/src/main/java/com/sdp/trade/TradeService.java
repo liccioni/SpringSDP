@@ -1,91 +1,89 @@
 package com.sdp.trade;
 
-import com.sdp.audit.AuditService;
 import com.sdp.common.Side;
 import com.sdp.common.Trade;
 import com.sdp.eventbus.EventBus;
-import com.sdp.market.MarketDataService;
 import com.sdp.session.Session;
 
-import java.time.Instant;
+import java.time.Duration;
 import java.util.Map;
-import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
 
+import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
+
+import tools.jackson.core.type.TypeReference;
+import tools.jackson.databind.ObjectMapper;
 
 /**
- * Handles the two-step execution workflow (see ADR 0018): requestTrade
- * validates a CREATE_TRADE request and holds it as a PendingTrade, or
- * rejects it immediately with a reason; confirmTrade persists a previously
- * requested trade and publishes it; cancelTrade discards one. Publishes
- * outcomes to the EventBus for the WebSocket layer to broadcast, and
- * records each terminal outcome as an audit event (see ADR 0019). Does not
- * generate prices.
+ * The monolith's (see ADR 0022's update, issue #92 - "Gateway" in the
+ * roadmap's own language) side of the "trade-requests"/"trade-responses"
+ * correlated request/reply pair: forwards CREATE_TRADE/CONFIRM_TRADE/
+ * CANCEL_TRADE/GET_TRADE_HISTORY to the Backend/Trading Service and routes
+ * each reply back by correlationId. Validation, the PendingTrade lifecycle
+ * (ADR 0018), and persistence all moved to trading-service's own
+ * TradeService - this class now holds no trading-domain logic of its own,
+ * only the request/reply plumbing SdpWebSocketHandler already depended on
+ * (its own call sites are completely unchanged: same method signatures,
+ * same semantics).
  *
  * Also the monolith's temporary consumer of TRADE_CREATED/TRADE_REJECTED
  * broadcasts from the Backend/Trading Service's RabbitMQ fanout exchanges
- * (see ADR 0022's update, issue #91) - relays each onto the same EventBus,
- * so SdpWebSocketHandler's existing broadcast-to-all-sessions delivery is
- * unchanged. Nothing calls the Trading Service for a real trade yet
- * (that's #92); this consumer exists so the outbound path is genuinely
- * live-testable now via a manually-triggered publish.
+ * (issue #91) - relays each onto the same EventBus, so
+ * SdpWebSocketHandler's existing broadcast-to-all-sessions delivery stays
+ * unchanged.
  */
 @Service
 public class TradeService {
 
-    private final MarketDataService marketDataService;
-    private final EventBus eventBus;
-    private final TradeRepository tradeRepository;
-    private final AuditService auditService;
-    private final Map<String, PendingTrade> pendingTrades = new ConcurrentHashMap<>();
+    private static final String TRADE_REQUESTS_BINDING = "tradeRequests-out-0";
+    private static final Duration REPLY_TIMEOUT = Duration.ofSeconds(10);
 
-    public TradeService(MarketDataService marketDataService, EventBus eventBus, TradeRepository tradeRepository, AuditService auditService) {
-        this.marketDataService = marketDataService;
+    private final EventBus eventBus;
+    private final StreamBridge streamBridge;
+    private final ObjectMapper objectMapper;
+    private final Map<String, Sinks.One<com.sdp.contracts.TradeCommandResult>> pendingReplies = new ConcurrentHashMap<>();
+
+    public TradeService(EventBus eventBus, StreamBridge streamBridge, ObjectMapper objectMapper) {
         this.eventBus = eventBus;
-        this.tradeRepository = tradeRepository;
-        this.auditService = auditService;
+        this.streamBridge = streamBridge;
+        this.objectMapper = objectMapper;
     }
 
     public Mono<PendingTrade> requestTrade(TradeRequest request, Session session) {
-        Optional<String> rejectionReason = validate(request);
-        if (rejectionReason.isPresent()) {
-            publishRejection(request, rejectionReason.get());
-            return auditService.record(session.id(), session.username(), "TRADE_REJECTED", describe(request) + " - " + rejectionReason.get())
-                    .then(Mono.empty());
-        }
-        PendingTrade pending = buildPendingTrade(request);
-        pendingTrades.put(pending.id(), pending);
-        return Mono.just(pending);
+        return send("CREATE_TRADE", request, session.username())
+                .flatMap(result -> "TRADE_PENDING".equals(result.type())
+                        ? Mono.just(objectMapper.convertValue(result.payload(), PendingTrade.class))
+                        : Mono.empty());
     }
 
     public Mono<Trade> confirmTrade(String id, Session session) {
-        PendingTrade pending = pendingTrades.remove(id);
-        if (pending == null) {
-            return Mono.empty();
-        }
-        return tradeRepository.save(buildTrade(pending))
-                .doOnNext(eventBus::publish)
-                .flatMap(trade -> auditService.record(session.id(), session.username(), "TRADE_EXECUTED", describe(trade)).thenReturn(trade));
+        // Fire-and-forget: the wire protocol never replies to CONFIRM_TRADE
+        // either (an unknown/already-resolved id is a silent no-op), and its
+        // only real effect - the TRADE_CREATED broadcast - already exists
+        // via #91's fanout exchange, independent of any correlationId.
+        streamBridge.send(TRADE_REQUESTS_BINDING, new com.sdp.contracts.TradeCommand(
+                UUID.randomUUID().toString(), session.username(), "CONFIRM_TRADE", new com.sdp.contracts.PendingTradeId(id)));
+        return Mono.empty();
     }
 
     public Mono<PendingTrade> cancelTrade(String id, Session session) {
-        PendingTrade pending = pendingTrades.remove(id);
-        if (pending == null) {
-            return Mono.empty();
-        }
-        return auditService.record(session.id(), session.username(), "TRADE_CANCELLED", describe(pending))
-                .thenReturn(pending);
+        return send("CANCEL_TRADE", new com.sdp.contracts.PendingTradeId(id), session.username())
+                .flatMap(result -> "TRADE_CANCELLED".equals(result.type())
+                        ? Mono.just(objectMapper.convertValue(result.payload(), PendingTrade.class))
+                        : Mono.empty());
     }
 
     public Flux<Trade> history() {
-        return tradeRepository.findAllByOrderByTimestampAsc();
+        return send("GET_TRADE_HISTORY", null, null)
+                .flatMapMany(result -> Flux.fromIterable(convertHistory(result.payload())));
     }
 
     @Bean
@@ -100,43 +98,31 @@ public class TradeService {
                 rejected.symbol(), Side.valueOf(rejected.side().name()), rejected.price(), rejected.quantity(), rejected.reason()));
     }
 
-    private PendingTrade buildPendingTrade(TradeRequest request) {
-        return new PendingTrade(
-                UUID.randomUUID().toString(),
-                request.symbol(),
-                request.side(),
-                request.price(),
-                request.quantity(),
-                Instant.now());
+    @Bean
+    public Consumer<com.sdp.contracts.TradeCommandResult> tradeResponseConsumer() {
+        return result -> {
+            Sinks.One<com.sdp.contracts.TradeCommandResult> sink = pendingReplies.remove(result.correlationId());
+            if (sink != null) {
+                sink.tryEmitValue(result);
+            }
+        };
     }
 
-    private Trade buildTrade(PendingTrade pending) {
-        return new Trade(pending.id(), pending.symbol(), pending.side(), pending.price(), pending.quantity(), Instant.now());
+    private Mono<com.sdp.contracts.TradeCommandResult> send(String type, Object payload, String submittedBy) {
+        String correlationId = UUID.randomUUID().toString();
+        Sinks.One<com.sdp.contracts.TradeCommandResult> sink = Sinks.one();
+        pendingReplies.put(correlationId, sink);
+        streamBridge.send(TRADE_REQUESTS_BINDING, new com.sdp.contracts.TradeCommand(correlationId, submittedBy, type, payload));
+        return sink.asMono()
+                .timeout(REPLY_TIMEOUT)
+                .doFinally(signal -> pendingReplies.remove(correlationId));
     }
 
-    private void publishRejection(TradeRequest request, String reason) {
-        eventBus.publish(new TradeRejected(request.symbol(), request.side(), request.price(), request.quantity(), reason));
-    }
-
-    private Optional<String> validate(TradeRequest request) {
-        if (request.quantity().signum() <= 0) {
-            return Optional.of("quantity must be greater than zero");
-        }
-        if (!marketDataService.symbols().contains(request.symbol())) {
-            return Optional.of("unknown symbol: " + request.symbol());
-        }
-        return Optional.empty();
-    }
-
-    private String describe(TradeRequest request) {
-        return request.side() + " " + request.quantity() + " " + request.symbol() + " @ " + request.price();
-    }
-
-    private String describe(PendingTrade pending) {
-        return pending.side() + " " + pending.quantity() + " " + pending.symbol() + " @ " + pending.price();
-    }
-
-    private String describe(Trade trade) {
-        return trade.side() + " " + trade.quantity() + " " + trade.symbol() + " @ " + trade.price();
+    private java.util.List<Trade> convertHistory(Object payload) {
+        java.util.List<com.sdp.contracts.Trade> contractTrades = objectMapper.convertValue(payload, new TypeReference<java.util.List<com.sdp.contracts.Trade>>() {
+        });
+        return contractTrades.stream()
+                .map(t -> new Trade(t.id(), t.symbol(), Side.valueOf(t.side().name()), t.price(), t.quantity(), t.timestamp()))
+                .toList();
     }
 }

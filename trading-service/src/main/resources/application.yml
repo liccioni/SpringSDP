@@ -16,15 +16,31 @@ spring:
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:localhost}
     port: ${SPRING_RABBITMQ_PORT:5672}
+  # The trade-requests/trade-responses correlated request/reply pair (issue
+  # #92, see ADR 0022's update) - the inbound half of trade execution.
+  # tradeRequestConsumer has no `group`: single instance assumed (per ADR
+  # 0022), so an anonymous queue is fine.
   cloud:
+    function:
+      definition: tradeRequestConsumer
     stream:
       bindings:
+        tradeRequestConsumer-in-0:
+          destination: trade-requests
+        tradeResponses-out-0:
+          destination: trade-responses
         tradeCreated-out-0:
           destination: trade-created
         tradeRejected-out-0:
           destination: trade-rejected
       rabbit:
         bindings:
+          tradeRequestConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeResponses-out-0:
+            producer:
+              exchangeType: fanout
           tradeCreated-out-0:
             producer:
               # Fanout: every consumer (the monolith today, the Gateway
