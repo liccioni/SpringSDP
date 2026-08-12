@@ -101,6 +101,15 @@ See [retro 0008](retros/0008-mvp-0.8.md) for what shipped, what was verified, an
 
 ⸻
 
+## MVP 0.9 – Role enforcement & blotter usability 🚧 In progress
+
+Closes a real gap found while working through the platform end to end: the `viewer` Keycloak role (defined correctly since MVP 0.6, with a demo user assigned it) was never actually enforced anywhere - no code path, frontend or backend, checked it. Also addresses the trade blotter's lack of filtering/pagination before trade volume makes it unwieldy.
+
+* Keycloak `trader`/`viewer` realm roles enforced on trade creation, authoritatively in `trading-service` ([#117](https://github.com/liccioni/SpringSDP/issues/117))
+* filtering and pagination added to the trade blotter, client-side over AG Grid Community's existing capabilities ([#118](https://github.com/liccioni/SpringSDP/issues/118))
+
+⸻
+
 ## What's next
 
-MVP 0.1 through 0.8 are done. No milestone is currently scheduled. Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#103](https://github.com/liccioni/SpringSDP/issues/103) (reverse proxy) remain open, deliberately unscheduled per CLAUDE.md's Core philosophy - no concrete need for either has arrived yet.
+MVP 0.1 through 0.8 are done; MVP 0.9 is in progress (see above). Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues), [#103](https://github.com/liccioni/SpringSDP/issues/103) (reverse proxy), [#119](https://github.com/liccioni/SpringSDP/issues/119) (swappable messaging transport), [#120](https://github.com/liccioni/SpringSDP/issues/120) (Kubernetes manifests), [#121](https://github.com/liccioni/SpringSDP/issues/121) (cloud deployment options), and [#122](https://github.com/liccioni/SpringSDP/issues/122) (real market data providers) remain open, deliberately unscheduled per CLAUDE.md's Core philosophy - no concrete need for any of them has arrived yet. A multi-cloud Terraform setup with a CLI installer to pick the provider was also considered and deliberately dropped rather than filed - it's a large amount of infrastructure for a single-maintainer project with no cloud deployment yet at all; #121 above covers picking one direction with a cost rationale instead.
