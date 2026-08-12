@@ -47,7 +47,7 @@ Domain boundaries matter from the beginning.
 
 ## Current milestone
 
-MVP 0.1 through MVP 0.7 are done (see [retro 0006](docs/retros/0006-mvp-0.6.md) for MVP 0.6; MVP 0.7's own retro is pending). MVP 0.6 (identity & session — Keycloak, Spring Security, Redis-backed Spring Session) reversed this file's Core philosophy section's "no framework auth" and "no Redis" constraints the same deliberate way "no authentication" was lifted for MVP 0.5. MVP 0.7 (service topology & messaging) reversed "no microservices" the same way: the monolith split into a WebSocket gateway (`gateway/`), a market data service, and a backend/trading service over RabbitMQ (#89-#93), and the original monolithic `backend/` module was deleted once every flow had migrated off it (#94). No MVP 0.8 has been scoped yet. See [Roadmap](docs/roadmap.md) for the full milestone breakdown and issue list.
+MVP 0.1 through MVP 0.7 are done (see [retro 0006](docs/retros/0006-mvp-0.6.md) for MVP 0.6 and [retro 0007](docs/retros/0007-mvp-0.7.md) for MVP 0.7). MVP 0.6 (identity & session — Keycloak, Spring Security, Redis-backed Spring Session) reversed this file's Core philosophy section's "no framework auth" and "no Redis" constraints the same deliberate way "no authentication" was lifted for MVP 0.5. MVP 0.7 (service topology & messaging) reversed "no microservices" the same way: the monolith split into a WebSocket gateway (`gateway/`), a market data service, and a backend/trading service over RabbitMQ (#89-#93), and the original monolithic `backend/` module was deleted once every flow had migrated off it (#94). No MVP 0.8 has been scoped yet. See [Roadmap](docs/roadmap.md) for the full milestone breakdown and issue list.
 
 ⸻
 
