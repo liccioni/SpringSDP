@@ -93,7 +93,18 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 				.flatMap(text -> handleIncoming(text, session, directMessages))
 				.then();
 
-		return webSocketSession.send(outbound).and(inbound);
+		return webSocketSession.send(outbound).and(inbound)
+				.doFinally(signalType -> cancelPendingTrades(session));
+	}
+
+	// The connection's own PendingTrades (issue #79) - not gated on the
+	// cancel actually succeeding, since the connection is already gone and
+	// there's nowhere left to report a failure to. CANCEL_TRADE's existing
+	// "unknown or already-resolved id is a silent no-op" contract already
+	// covers a trade this session confirmed/cancelled itself just before
+	// disconnecting.
+	private void cancelPendingTrades(Session session) {
+		session.pendingTrades().all().forEach(id -> tradeService.cancelTrade(id, session).subscribe());
 	}
 
 	private Mono<WebSocketMessage> toMessage(WebSocketSession session, Envelope envelope) {
@@ -117,16 +128,23 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private Mono<Void> handleCreateTrade(Envelope envelope, Session session, Sinks.Many<Envelope> directMessages) {
 		TradeRequest request = objectMapper.convertValue(envelope.payload(), TradeRequest.class);
 		return tradeService.requestTrade(request, session)
-				.doOnNext(pending -> emitDirect(directMessages, new Envelope("TRADE_PENDING", pending)))
+				.doOnNext(pending -> {
+					session.pendingTrades().add(pending.id());
+					emitDirect(directMessages, new Envelope("TRADE_PENDING", pending));
+				})
 				.then();
 	}
 
 	private Mono<Void> handleConfirmTrade(Envelope envelope, Session session) {
-		return tradeService.confirmTrade(readPendingTradeId(envelope), session).then();
+		String id = readPendingTradeId(envelope);
+		session.pendingTrades().remove(id);
+		return tradeService.confirmTrade(id, session).then();
 	}
 
 	private Mono<Void> handleCancelTrade(Envelope envelope, Session session, Sinks.Many<Envelope> directMessages) {
-		return tradeService.cancelTrade(readPendingTradeId(envelope), session)
+		String id = readPendingTradeId(envelope);
+		session.pendingTrades().remove(id);
+		return tradeService.cancelTrade(id, session)
 				.doOnNext(pending -> emitDirect(directMessages, new Envelope("TRADE_CANCELLED", pending)))
 				.then();
 	}
