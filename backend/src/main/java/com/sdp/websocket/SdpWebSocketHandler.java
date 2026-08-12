@@ -1,6 +1,5 @@
 package com.sdp.websocket;
 
-import com.sdp.audit.AuditService;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
 import com.sdp.session.Session;
@@ -11,6 +10,7 @@ import com.sdp.trade.TradeService;
 import java.security.Principal;
 
 import tools.jackson.databind.ObjectMapper;
+import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.socket.WebSocketHandler;
 import org.springframework.web.reactive.socket.WebSocketMessage;
@@ -25,8 +25,10 @@ import reactor.core.publisher.Sinks;
  * 0016. The security filter chain rejects an unauthenticated WS upgrade
  * before handle() is ever invoked, so the principal from the handshake is
  * always present here. Once authenticated, resolves the connection's
- * Session (see ADR 0017), records a SESSION_STARTED audit event (see
- * ADR 0019), and sends a personalized HELLO envelope, then streams EventBus
+ * Session (see ADR 0017), publishes a SESSION_STARTED event over RabbitMQ
+ * for the Backend/Trading Service to audit (see ADR 0019, and ADR 0022's
+ * update for issue #93 - this monolith plays the Gateway role, same as
+ * #90-#92), and sends a personalized HELLO envelope, then streams EventBus
  * events and handles incoming
  * CREATE_TRADE/CONFIRM_TRADE/CANCEL_TRADE/SUBSCRIBE/UNSUBSCRIBE/GET_TRADE_HISTORY
  * envelopes for the session's lifetime. Doesn't know or care which service
@@ -46,16 +48,18 @@ import reactor.core.publisher.Sinks;
 @Component
 public class SdpWebSocketHandler implements WebSocketHandler {
 
+	private static final String SESSION_STARTED_BINDING = "sessionStarted-out-0";
+
 	private final ObjectMapper objectMapper;
 	private final EventBus eventBus;
 	private final TradeService tradeService;
-	private final AuditService auditService;
+	private final StreamBridge streamBridge;
 
-	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService, AuditService auditService) {
+	public SdpWebSocketHandler(ObjectMapper objectMapper, EventBus eventBus, TradeService tradeService, StreamBridge streamBridge) {
 		this.objectMapper = objectMapper;
 		this.eventBus = eventBus;
 		this.tradeService = tradeService;
-		this.auditService = auditService;
+		this.streamBridge = streamBridge;
 	}
 
 	@Override
@@ -70,7 +74,8 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		Sinks.Many<Envelope> directMessages = Sinks.many().unicast().onBackpressureBuffer();
 
-		Mono<WebSocketMessage> hello = auditService.record(session.id(), session.username(), "SESSION_STARTED", "")
+		Mono<WebSocketMessage> hello = Mono.fromRunnable(() -> streamBridge.send(
+						SESSION_STARTED_BINDING, new com.sdp.contracts.SessionStarted(session.id(), session.username())))
 				.then(toMessage(webSocketSession, new Envelope("HELLO", "Hello, " + session.username() + "!")));
 
 		Flux<WebSocketMessage> events = eventBus.events()

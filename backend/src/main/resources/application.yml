@@ -85,6 +85,10 @@ spring:
   # dedicated output binding needed beyond the destination below) and
   # tradeResponseConsumer routes each reply back to the correlationId's
   # waiting Sinks.One - see ADR 0022's update.
+  # Also: SESSION_STARTED (issue #93) - com.sdp.websocket.SdpWebSocketHandler
+  # publishes a fire-and-forget event on this fanout exchange once a
+  # connection's identity is resolved, for the Backend/Trading Service to
+  # audit; no reply expected, so no consumer binding needed on this side.
   cloud:
     function:
       definition: priceTickConsumer;tradeCreatedConsumer;tradeRejectedConsumer;tradeResponseConsumer
@@ -100,6 +104,8 @@ spring:
           destination: trade-responses
         tradeRequests-out-0:
           destination: trade-requests
+        sessionStarted-out-0:
+          destination: session-started
       rabbit:
         bindings:
           priceTickConsumer-in-0:
@@ -115,6 +121,9 @@ spring:
             consumer:
               exchangeType: fanout
           tradeRequests-out-0:
+            producer:
+              exchangeType: fanout
+          sessionStarted-out-0:
             producer:
               exchangeType: fanout
 

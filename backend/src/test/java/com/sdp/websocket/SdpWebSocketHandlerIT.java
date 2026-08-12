@@ -25,11 +25,15 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
+import org.springframework.amqp.core.BindingBuilder;
+import org.springframework.amqp.core.FanoutExchange;
 import org.springframework.amqp.core.Message;
 import org.springframework.amqp.core.MessageProperties;
+import org.springframework.amqp.core.Queue;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -78,10 +82,31 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 
 	private String sessionCookie;
 	private FakeTradingService fakeTradingService;
+	private String sessionStartedQueue;
 
 	@BeforeEach
 	void logIn() {
 		sessionCookie = authenticatedSessionId("trader1");
+	}
+
+	// Stands in for the real Backend/Trading Service's consumption of
+	// SESSION_STARTED (issue #93) - this test only starts the monolith's
+	// own context, so nothing else would receive what SdpWebSocketHandler
+	// publishes without a queue bound here first. Not auto-delete/exclusive
+	// instead: same reasoning as TradeServiceIT's bindAnonymousQueue (see
+	// docs/testing.md) - avoids the queue vanishing between declare and
+	// receive.
+	@BeforeEach
+	void bindSessionStartedQueue() {
+		FanoutExchange exchange = new FanoutExchange("session-started");
+		amqpAdmin.declareExchange(exchange);
+		sessionStartedQueue = amqpAdmin.declareQueue(new Queue("", false, true, false));
+		amqpAdmin.declareBinding(BindingBuilder.bind(new Queue(sessionStartedQueue)).to(exchange));
+	}
+
+	@AfterEach
+	void deleteSessionStartedQueue() {
+		amqpAdmin.deleteQueue(sessionStartedQueue);
 	}
 
 	// Stands in for the real Backend/Trading Service (see #92, ADR 0022's
@@ -183,6 +208,24 @@ class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegration
 		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
 		assertThat(envelope.type()).isEqualTo("HELLO");
 		assertThat(envelope.payload()).isEqualTo("Hello, trader1!");
+	}
+
+	// Proves the producer side of #93: connecting publishes a SESSION_STARTED
+	// event onto the "session-started" fanout exchange for the Backend/
+	// Trading Service to audit, in place of the direct in-process
+	// AuditService.record call this replaced.
+	@Test
+	void publishesSessionStartedOnConnect() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+
+		client.execute(wsUri(), sessionCookieHeader(), session -> session.receive().next().then())
+				.block(Duration.ofSeconds(5));
+
+		Message message = rabbitTemplate.receive(sessionStartedQueue, 5000);
+		assertThat(message).isNotNull();
+		com.sdp.contracts.SessionStarted event = objectMapper.readValue(message.getBody(), com.sdp.contracts.SessionStarted.class);
+		assertThat(event.username()).isEqualTo("trader1");
+		assertThat(event.sessionId()).isNotBlank();
 	}
 
 	@Test
