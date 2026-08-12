@@ -2,6 +2,7 @@ import ExecutionConfirmation from './components/ExecutionConfirmation'
 import Greeting from './components/Greeting'
 import PriceGrid from './components/PriceGrid'
 import TradeBlotter from './components/TradeBlotter'
+import { logout } from './services/socket'
 
 // No login gating here: identity comes from the Spring Session cookie set
 // by the Keycloak redirect flow (see ADR 0020). If a WebSocket connection
@@ -17,7 +18,12 @@ function App() {
           </span>
           <h1 className="brand__title">Single Dealer Platform</h1>
         </div>
-        <Greeting />
+        <div className="shell__header-actions">
+          <Greeting />
+          <button type="button" className="logout-button" onClick={logout}>
+            Logout
+          </button>
+        </div>
       </header>
       <div className="shell__body">
         <section className="panel" aria-label="Rates">
