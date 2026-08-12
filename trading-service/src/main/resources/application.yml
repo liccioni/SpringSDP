@@ -20,9 +20,13 @@ spring:
   # #92, see ADR 0022's update) - the inbound half of trade execution.
   # tradeRequestConsumer has no `group`: single instance assumed (per ADR
   # 0022), so an anonymous queue is fine.
+  # Also: session-started (issue #93) - the Gateway (today, the monolith)
+  # publishes a fire-and-forget SESSION_STARTED event once a connection's
+  # identity is resolved; sessionStartedConsumer (com.sdp.audit.AuditService)
+  # persists it via the existing AuditService, no reply needed.
   cloud:
     function:
-      definition: tradeRequestConsumer
+      definition: tradeRequestConsumer;sessionStartedConsumer
     stream:
       bindings:
         tradeRequestConsumer-in-0:
@@ -33,6 +37,8 @@ spring:
           destination: trade-created
         tradeRejected-out-0:
           destination: trade-rejected
+        sessionStartedConsumer-in-0:
+          destination: session-started
       rabbit:
         bindings:
           tradeRequestConsumer-in-0:
@@ -48,6 +54,9 @@ spring:
               exchangeType: fanout
           tradeRejected-out-0:
             producer:
+              exchangeType: fanout
+          sessionStartedConsumer-in-0:
+            consumer:
               exchangeType: fanout
 
 management:
