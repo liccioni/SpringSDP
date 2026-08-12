@@ -44,6 +44,8 @@ const columnDefs: ColDef<Trade>[] = [
   { field: 'quantity', headerName: 'Quantity', type: 'rightAligned', flex: 1.1 },
 ]
 
+const defaultColDef: ColDef<Trade> = { filter: true, floatingFilter: true, sortable: true }
+
 function getRowId(params: GetRowIdParams<Trade>) {
   return params.data.id
 }
@@ -83,9 +85,13 @@ function TradeBlotter() {
         theme={tradingTheme}
         rowData={trades}
         columnDefs={columnDefs}
+        defaultColDef={defaultColDef}
         getRowId={getRowId}
         domLayout="autoHeight"
         rowClassRules={rowClassRules}
+        pagination
+        paginationPageSize={20}
+        paginationPageSizeSelector={[10, 20, 50, 100]}
       />
     </div>
   )
