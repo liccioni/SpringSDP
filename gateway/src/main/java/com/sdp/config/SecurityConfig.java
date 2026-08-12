@@ -40,6 +40,13 @@ import org.springframework.session.data.redis.config.annotation.web.server.Enabl
  * auto-configuration: spring-session-data-redis ships no Spring Boot
  * auto-configuration of its own for the reactive (WebSession) case in this
  * version, only the servlet (HttpSession) one - see ADR 0020.
+ *
+ * No explicit userInfoEndpoint()/oidcUserService() wiring here - the
+ * reactive OAuth2LoginSpec has no such DSL method (unlike servlet
+ * security); it looks up a ReactiveOAuth2UserService&lt;OidcUserRequest,
+ * OidcUser&gt; bean from the context itself. KeycloakRealmRoleOidcUserService
+ * is that bean (see ADR 0025), mapping realm_access.roles onto the
+ * authenticated principal's authorities.
  */
 @Configuration
 @EnableWebFluxSecurity

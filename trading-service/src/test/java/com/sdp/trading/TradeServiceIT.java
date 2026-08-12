@@ -12,6 +12,7 @@ import com.sdp.contracts.TradeRequest;
 import java.math.BigDecimal;
 import java.time.Duration;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.AfterEach;
@@ -103,14 +104,14 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
         String correlationId = UUID.randomUUID().toString();
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"));
 
-        tradeService.handle(new TradeCommand(correlationId, "trader1", "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
+        tradeService.handle(new TradeCommand(correlationId, "trader1", Set.of("trader"), "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
 
         TradeCommandResult pendingReply = receiveResponse();
         assertThat(pendingReply.correlationId()).isEqualTo(correlationId);
         assertThat(pendingReply.type()).isEqualTo("TRADE_PENDING");
         PendingTrade pending = objectMapper.convertValue(pendingReply.payload(), PendingTrade.class);
 
-        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", "CONFIRM_TRADE", new PendingTradeId(pending.id())))
+        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", Set.of("trader"), "CONFIRM_TRADE", new PendingTradeId(pending.id())))
                 .block(Duration.ofSeconds(5));
 
         assertThat(tradeRepository.findById(pending.id()).block(Duration.ofSeconds(5))).isNotNull();
@@ -127,7 +128,7 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
         String correlationId = UUID.randomUUID().toString();
         TradeRequest request = new TradeRequest("GBP/USD", Side.SELL, new BigDecimal("1.2650"), new BigDecimal("0"));
 
-        tradeService.handle(new TradeCommand(correlationId, "trader1", "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
+        tradeService.handle(new TradeCommand(correlationId, "trader1", Set.of("trader"), "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
 
         TradeCommandResult reply = receiveResponse();
         assertThat(reply.correlationId()).isEqualTo(correlationId);
@@ -141,13 +142,30 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
     }
 
     @Test
+    void createTradeFromAViewerRoleRejectsOverTheRealBroker() {
+        String correlationId = UUID.randomUUID().toString();
+        TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"));
+
+        tradeService.handle(new TradeCommand(correlationId, "trader2", Set.of("viewer"), "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
+
+        TradeCommandResult reply = receiveResponse();
+        assertThat(reply.correlationId()).isEqualTo(correlationId);
+        assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
+
+        Message message = rabbitTemplate.receive(tradeRejectedQueue, 5000);
+        assertThat(message).isNotNull();
+        com.sdp.contracts.TradeRejected broadcast = objectMapper.readValue(message.getBody(), com.sdp.contracts.TradeRejected.class);
+        assertThat(broadcast.reason()).isEqualTo("role does not permit trading");
+    }
+
+    @Test
     void createTradeThenCancelRepliesWithTheCancelledPendingTradeWithoutPersisting() {
         TradeRequest request = new TradeRequest("USD/JPY", Side.BUY, new BigDecimal("149.50"), new BigDecimal("250000"));
-        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
+        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", Set.of("trader"), "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
         PendingTrade pending = objectMapper.convertValue(receiveResponse().payload(), PendingTrade.class);
 
         String correlationId = UUID.randomUUID().toString();
-        tradeService.handle(new TradeCommand(correlationId, "trader1", "CANCEL_TRADE", new PendingTradeId(pending.id())))
+        tradeService.handle(new TradeCommand(correlationId, "trader1", Set.of("trader"), "CANCEL_TRADE", new PendingTradeId(pending.id())))
                 .block(Duration.ofSeconds(5));
 
         TradeCommandResult reply = receiveResponse();
@@ -160,7 +178,7 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
     void cancelTradeWithAnUnknownIdRepliesNoop() {
         String correlationId = UUID.randomUUID().toString();
 
-        tradeService.handle(new TradeCommand(correlationId, "trader1", "CANCEL_TRADE", new PendingTradeId("unknown")))
+        tradeService.handle(new TradeCommand(correlationId, "trader1", Set.of("trader"), "CANCEL_TRADE", new PendingTradeId("unknown")))
                 .block(Duration.ofSeconds(5));
 
         TradeCommandResult reply = receiveResponse();
@@ -171,15 +189,15 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
     @Test
     void getTradeHistoryRepliesWithThePersistedHistory() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0900"), new BigDecimal("400000"));
-        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
+        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", Set.of("trader"), "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
         PendingTrade pending = objectMapper.convertValue(receiveResponse().payload(), PendingTrade.class);
-        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", "CONFIRM_TRADE", new PendingTradeId(pending.id())))
+        tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", Set.of("trader"), "CONFIRM_TRADE", new PendingTradeId(pending.id())))
                 .block(Duration.ofSeconds(5));
         // Drain the TRADE_CREATED broadcast this confirm produced, unrelated to this test.
         rabbitTemplate.receive(tradeCreatedQueue, 5000);
 
         String correlationId = UUID.randomUUID().toString();
-        tradeService.handle(new TradeCommand(correlationId, "trader1", "GET_TRADE_HISTORY", null)).block(Duration.ofSeconds(5));
+        tradeService.handle(new TradeCommand(correlationId, "trader1", Set.of("trader"), "GET_TRADE_HISTORY", null)).block(Duration.ofSeconds(5));
 
         TradeCommandResult reply = receiveResponse();
         assertThat(reply.correlationId()).isEqualTo(correlationId);

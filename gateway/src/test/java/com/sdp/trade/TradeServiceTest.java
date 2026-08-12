@@ -12,6 +12,7 @@ import java.math.BigDecimal;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 import org.junit.jupiter.api.Test;
@@ -43,7 +44,7 @@ class TradeServiceTest {
     private final StreamBridge streamBridge = mock(StreamBridge.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
     private final TradeService service = new TradeService(eventBus, streamBridge, objectMapper);
-    private final Session session = new Session("connection-1", "trader1");
+    private final Session session = new Session("connection-1", "trader1", Set.of("trader"));
 
     private TradeCommand captureSentCommand() {
         ArgumentCaptor<TradeCommand> captor = ArgumentCaptor.forClass(TradeCommand.class);
@@ -59,6 +60,7 @@ class TradeServiceTest {
         TradeCommand sent = captureSentCommand();
         assertThat(sent.type()).isEqualTo("CREATE_TRADE");
         assertThat(sent.submittedBy()).isEqualTo("trader1");
+        assertThat(sent.roles()).containsExactly("trader");
 
         com.sdp.contracts.PendingTrade pending = new com.sdp.contracts.PendingTrade(
                 UUID.randomUUID().toString(), "EUR/USD", com.sdp.contracts.Side.BUY, request.price(), request.quantity(), Instant.now());

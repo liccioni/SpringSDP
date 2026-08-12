@@ -7,6 +7,7 @@ import com.sdp.session.Session;
 
 import java.time.Duration;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Consumer;
@@ -58,7 +59,7 @@ public class TradeService {
     }
 
     public Mono<PendingTrade> requestTrade(TradeRequest request, Session session) {
-        return send("CREATE_TRADE", request, session.username())
+        return send("CREATE_TRADE", request, session.username(), session.roles())
                 .flatMap(result -> "TRADE_PENDING".equals(result.type())
                         ? Mono.just(objectMapper.convertValue(result.payload(), PendingTrade.class))
                         : Mono.empty());
@@ -70,19 +71,19 @@ public class TradeService {
         // only real effect - the TRADE_CREATED broadcast - already exists
         // via #91's fanout exchange, independent of any correlationId.
         streamBridge.send(TRADE_REQUESTS_BINDING, new com.sdp.contracts.TradeCommand(
-                UUID.randomUUID().toString(), session.username(), "CONFIRM_TRADE", new com.sdp.contracts.PendingTradeId(id)));
+                UUID.randomUUID().toString(), session.username(), session.roles(), "CONFIRM_TRADE", new com.sdp.contracts.PendingTradeId(id)));
         return Mono.empty();
     }
 
     public Mono<PendingTrade> cancelTrade(String id, Session session) {
-        return send("CANCEL_TRADE", new com.sdp.contracts.PendingTradeId(id), session.username())
+        return send("CANCEL_TRADE", new com.sdp.contracts.PendingTradeId(id), session.username(), session.roles())
                 .flatMap(result -> "TRADE_CANCELLED".equals(result.type())
                         ? Mono.just(objectMapper.convertValue(result.payload(), PendingTrade.class))
                         : Mono.empty());
     }
 
     public Flux<Trade> history() {
-        return send("GET_TRADE_HISTORY", null, null)
+        return send("GET_TRADE_HISTORY", null, null, Set.of())
                 .flatMapMany(result -> Flux.fromIterable(convertHistory(result.payload())));
     }
 
@@ -108,11 +109,11 @@ public class TradeService {
         };
     }
 
-    private Mono<com.sdp.contracts.TradeCommandResult> send(String type, Object payload, String submittedBy) {
+    private Mono<com.sdp.contracts.TradeCommandResult> send(String type, Object payload, String submittedBy, Set<String> roles) {
         String correlationId = UUID.randomUUID().toString();
         Sinks.One<com.sdp.contracts.TradeCommandResult> sink = Sinks.one();
         pendingReplies.put(correlationId, sink);
-        streamBridge.send(TRADE_REQUESTS_BINDING, new com.sdp.contracts.TradeCommand(correlationId, submittedBy, type, payload));
+        streamBridge.send(TRADE_REQUESTS_BINDING, new com.sdp.contracts.TradeCommand(correlationId, submittedBy, roles, type, payload));
         return sink.asMono()
                 .timeout(REPLY_TIMEOUT)
                 .doFinally(signal -> pendingReplies.remove(correlationId));
