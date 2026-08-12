@@ -1,6 +1,138 @@
+server:
+  port: 8080
+
 spring:
   application:
     name: gateway
+  # Keycloak (authorization code grant) - absorbed from the monolith as of
+  # #94, see ADR 0020. "keycloak" is both the registration id (hence the
+  # redirect URI /login/oauth2/code/keycloak in keycloak/sdp-realm.json)
+  # and the provider id.
+  #
+  # Endpoints are listed individually, deliberately with no issuer-uri:
+  # the browser and this service reach Keycloak by different paths under
+  # Docker Compose (browser: host-published localhost:8081; this service:
+  # the internal keycloak:8080 service name), and Spring Boot's issuer-uri
+  # shortcut always performs an eager discovery fetch at startup and
+  # asserts the fetched issuer string exactly equals the URL it fetched
+  # from - even when the other endpoints are also given explicitly. That
+  # can't hold when the two paths differ, so issuer-uri is omitted
+  # entirely (accepting that the ID token's iss claim goes unvalidated -
+  # an acceptable simplification for this project's scale, see ADR 0020).
+  # authorization-uri stays browser-facing (correct in both Docker Compose
+  # and native, since the browser always sees the host-published port);
+  # token/jwk-set/user-info-uri are this service's own calls to Keycloak,
+  # overridden to the internal service name only under Docker Compose.
+  security:
+    oauth2:
+      client:
+        registration:
+          keycloak:
+            client-id: ${KEYCLOAK_CLIENT_ID:sdp-backend}
+            client-secret: ${KEYCLOAK_CLIENT_SECRET:sdp-backend-secret}
+            authorization-grant-type: authorization_code
+            scope: openid,profile,email
+            # Only applied automatically by the issuer-uri shortcut, which
+            # this config deliberately doesn't use - see the comment above.
+            redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
+        provider:
+          keycloak:
+            authorization-uri: ${KEYCLOAK_AUTHORIZATION_URI:http://localhost:8081/realms/sdp/protocol/openid-connect/auth}
+            token-uri: ${KEYCLOAK_TOKEN_URI:http://localhost:8081/realms/sdp/protocol/openid-connect/token}
+            jwk-set-uri: ${KEYCLOAK_JWK_SET_URI:http://localhost:8081/realms/sdp/protocol/openid-connect/certs}
+            user-info-uri: ${KEYCLOAK_USER_INFO_URI:http://localhost:8081/realms/sdp/protocol/openid-connect/userinfo}
+            user-name-attribute: preferred_username
+  # Redis-backed Spring Session - see ADR 0020. Replaces the in-memory
+  # token map from ADR 0016, so a session survives a gateway restart.
+  session:
+    store-type: redis
+  data:
+    redis:
+      host: ${SPRING_DATA_REDIS_HOST:localhost}
+      port: ${SPRING_DATA_REDIS_PORT:6379}
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+  # Consumer of the Market Data Service's PRICE_TICK fanout exchange (issue
+  # #90) and the Backend/Trading Service's TRADE_CREATED/TRADE_REJECTED
+  # fanout exchanges (issue #91) - see ADR 0022. Relays each onto the
+  # in-process EventBus (com.sdp.market.MarketDataService and
+  # com.sdp.trade.TradeService's own *Consumer @Bean methods) so
+  # SdpWebSocketHandler's delivery is unchanged from when the monolith
+  # played this role. No consumer group on any of these: each instance
+  # gets its own anonymous, auto-delete queue, so a future second Gateway
+  # instance would get its own copy too (moot today - single instance
+  # assumed, see ADR 0022).
+  # Also: the "trade-requests"/"trade-responses" correlated request/reply
+  # pair (issue #92) - com.sdp.trade.TradeService forwards CREATE_TRADE/
+  # CONFIRM_TRADE/CANCEL_TRADE/GET_TRADE_HISTORY out via StreamBridge (no
+  # dedicated output binding needed beyond the destination below) and
+  # tradeResponseConsumer routes each reply back to the correlationId's
+  # waiting Sinks.One - see ADR 0022's update.
+  # Also: SESSION_STARTED (issue #93), LOGIN_SUCCESS/LOGIN_ERROR (issue #94)
+  # - com.sdp.websocket.SdpWebSocketHandler and
+  # com.sdp.config.Auditing*Handler publish fire-and-forget events on these
+  # fanout exchanges once a connection's identity resolves (or a login
+  # attempt completes/fails), for the Backend/Trading Service to audit; no
+  # reply expected, so no consumer binding needed on this side. Replaces
+  # the direct in-process AuditService.record() calls the monolith made
+  # for these two events - the last piece keeping this service off Postgres
+  # entirely (see ADR 0022).
+  cloud:
+    function:
+      definition: priceTickConsumer;tradeCreatedConsumer;tradeRejectedConsumer;tradeResponseConsumer
+    stream:
+      bindings:
+        priceTickConsumer-in-0:
+          destination: price-ticks
+        tradeCreatedConsumer-in-0:
+          destination: trade-created
+        tradeRejectedConsumer-in-0:
+          destination: trade-rejected
+        tradeResponseConsumer-in-0:
+          destination: trade-responses
+        tradeRequests-out-0:
+          destination: trade-requests
+        sessionStarted-out-0:
+          destination: session-started
+        loginSuccess-out-0:
+          destination: login-success
+        loginError-out-0:
+          destination: login-error
+      rabbit:
+        bindings:
+          priceTickConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeCreatedConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeRejectedConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeResponseConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          tradeRequests-out-0:
+            producer:
+              exchangeType: fanout
+          sessionStarted-out-0:
+            producer:
+              exchangeType: fanout
+          loginSuccess-out-0:
+            producer:
+              exchangeType: fanout
+          loginError-out-0:
+            producer:
+              exchangeType: fanout
+
+app:
+  # Frontend origin the browser is redirected back to once oauth2Login
+  # succeeds (see SecurityConfig) - a different port from this service even
+  # in local dev. The default holds for Docker Compose too: the browser
+  # (not the frontend container) handles this redirect, so it always sees
+  # the host-published origin - see docs/protocol.md's Endpoint section.
+  frontend-origin: ${APP_FRONTEND_ORIGIN:http://localhost:5173}
 
 management:
   endpoints:

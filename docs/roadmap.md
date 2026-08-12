@@ -81,16 +81,17 @@ See [retro 0006](retros/0006-mvp-0.6.md) for what shipped, what was verified, an
 
 ⸻
 
-## MVP 0.7 – Service topology & messaging
+## MVP 0.7 – Service topology & messaging ✅ Done
 
-Reverses "no microservices." Splits the monolith into three services, connected via RabbitMQ and Spring Cloud Stream binders, migrated incrementally (strangler-fig, not a big-bang cutover) so the app stays runnable at every stage.
+Reversed "no microservices." Split the monolith into three services, connected via RabbitMQ and Spring Cloud Stream binders, migrated incrementally (strangler-fig, not a big-bang cutover) so the app stayed runnable at every stage — see CLAUDE.md's Core philosophy section.
 
-* a pure WebSocket gateway
-* a market data service
-* a backend/trading service with database access (trade service, order service, etc.)
+* a pure WebSocket gateway (`gateway/`), absorbing the monolith's OAuth2 login, session, and WebSocket-handling code as its final step
+* a market data service (`market-data-service/`)
+* a backend/trading service with database access (`trading-service/`) - trade domain logic and the audit trail
+* the original monolithic `backend/` module deleted entirely once every flow had migrated
 
 ⸻
 
 ## What's next
 
-MVP 0.1 through 0.6 are done. MVP 0.7 is planned (8 issues, see the [MVP 0.7](https://github.com/liccioni/SpringSDP/milestone/7) GitHub milestone) but not yet started. Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#79](https://github.com/liccioni/SpringSDP/issues/79) (cancel pending trades on disconnect) are intended to land on the new backend/trading service once MVP 0.7 is done.
+MVP 0.1 through 0.7 are done. No MVP 0.8 has been scoped yet - see CLAUDE.md's Core philosophy section for what's still deliberately unreversed ("no Kafka"). Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#79](https://github.com/liccioni/SpringSDP/issues/79) (cancel pending trades on disconnect) remain open and are intended to land on `trading-service` whenever they're picked up next.

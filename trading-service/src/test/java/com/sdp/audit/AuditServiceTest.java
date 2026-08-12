@@ -1,5 +1,7 @@
 package com.sdp.audit;
 
+import com.sdp.contracts.LoginError;
+import com.sdp.contracts.LoginSuccess;
 import com.sdp.contracts.SessionStarted;
 
 import java.util.function.Consumer;
@@ -44,5 +46,34 @@ class AuditServiceTest {
         assertThat(saved.sessionId()).isEqualTo("connection-1");
         assertThat(saved.username()).isEqualTo("trader1");
         assertThat(saved.eventType()).isEqualTo("SESSION_STARTED");
+    }
+
+    @Test
+    void loginSuccessConsumerPersistsWithNoSessionId() {
+        when(auditEventRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        service.loginSuccessConsumer().accept(new LoginSuccess("trader1"));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AuditEvent.class);
+        org.mockito.Mockito.verify(auditEventRepository).save(captor.capture());
+        AuditEvent saved = captor.getValue();
+        assertThat(saved.sessionId()).isNull();
+        assertThat(saved.username()).isEqualTo("trader1");
+        assertThat(saved.eventType()).isEqualTo("LOGIN_SUCCESS");
+    }
+
+    @Test
+    void loginErrorConsumerPersistsWithTheEventsDetail() {
+        when(auditEventRepository.save(any())).thenAnswer(invocation -> Mono.just(invocation.getArgument(0)));
+
+        service.loginErrorConsumer().accept(new LoginError("unknown", "invalid_token"));
+
+        var captor = org.mockito.ArgumentCaptor.forClass(AuditEvent.class);
+        org.mockito.Mockito.verify(auditEventRepository).save(captor.capture());
+        AuditEvent saved = captor.getValue();
+        assertThat(saved.sessionId()).isNull();
+        assertThat(saved.username()).isEqualTo("unknown");
+        assertThat(saved.eventType()).isEqualTo("LOGIN_ERROR");
+        assertThat(saved.detail()).isEqualTo("invalid_token");
     }
 }

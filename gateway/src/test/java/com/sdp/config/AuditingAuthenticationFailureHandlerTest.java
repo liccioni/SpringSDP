@@ -1,11 +1,9 @@
 package com.sdp.config;
 
-import java.time.Instant;
-
-import com.sdp.audit.AuditEvent;
-import com.sdp.audit.AuditService;
+import com.sdp.contracts.LoginError;
 
 import org.junit.jupiter.api.Test;
+import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
@@ -16,28 +14,21 @@ import org.springframework.security.web.server.WebFilterExchange;
 import org.springframework.web.server.ServerWebExchange;
 import org.springframework.web.server.WebFilterChain;
 
-import reactor.core.publisher.Mono;
 import reactor.test.StepVerifier;
 
 import static org.assertj.core.api.Assertions.assertThat;
-import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.argThat;
 import static org.mockito.ArgumentMatchers.eq;
-import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 
 class AuditingAuthenticationFailureHandlerTest {
 
-    private final AuditService auditService = mock(AuditService.class);
-    private final AuditingAuthenticationFailureHandler handler = new AuditingAuthenticationFailureHandler(auditService);
+    private final StreamBridge streamBridge = mock(StreamBridge.class);
+    private final AuditingAuthenticationFailureHandler handler = new AuditingAuthenticationFailureHandler(streamBridge);
 
     @Test
-    void recordsLoginErrorWithNoUsernameThenRedirectsToLoginError() {
-        when(auditService.record(isNull(), eq("unknown"), eq("LOGIN_ERROR"), eq("consent_required")))
-                .thenReturn(Mono.just(new AuditEvent("id", null, "unknown", "LOGIN_ERROR", "consent_required", Instant.now())));
-
+    void publishesLoginErrorWithNoUsernameThenRedirectsToLoginError() {
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/login/oauth2/code/keycloak"));
         WebFilterChain chain = mock(WebFilterChain.class);
         AuthenticationException exception =
@@ -46,15 +37,13 @@ class AuditingAuthenticationFailureHandlerTest {
         StepVerifier.create(handler.onAuthenticationFailure(new WebFilterExchange(exchange, chain), exception))
                 .verifyComplete();
 
-        verify(auditService).record(null, "unknown", "LOGIN_ERROR", "consent_required");
+        verify(streamBridge).send("loginError-out-0", new LoginError("unknown", "consent_required"));
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FOUND);
         assertThat(exchange.getResponse().getHeaders().getLocation()).hasToString("/login?error");
     }
 
     @Test
     void fallsBackToTheExceptionTypeWhenNoMessageIsAvailable() {
-        when(auditService.record(isNull(), eq("unknown"), eq("LOGIN_ERROR"), any())).thenReturn(Mono.empty());
-
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/login/oauth2/code/keycloak"));
         WebFilterChain chain = mock(WebFilterChain.class);
         AuthenticationException exception = new AuthenticationException(null) {
@@ -63,13 +52,11 @@ class AuditingAuthenticationFailureHandlerTest {
         StepVerifier.create(handler.onAuthenticationFailure(new WebFilterExchange(exchange, chain), exception))
                 .verifyComplete();
 
-        verify(auditService).record(null, "unknown", "LOGIN_ERROR", exception.getClass().getSimpleName());
+        verify(streamBridge).send("loginError-out-0", new LoginError("unknown", exception.getClass().getSimpleName()));
     }
 
     @Test
     void truncatesAnOverlongDetailToFitTheAuditColumn() {
-        when(auditService.record(isNull(), eq("unknown"), eq("LOGIN_ERROR"), any())).thenReturn(Mono.empty());
-
         ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.get("/login/oauth2/code/keycloak"));
         WebFilterChain chain = mock(WebFilterChain.class);
         AuthenticationException exception = new OAuth2AuthenticationException(new OAuth2Error("invalid_token"), "x".repeat(500));
@@ -77,6 +64,6 @@ class AuditingAuthenticationFailureHandlerTest {
         StepVerifier.create(handler.onAuthenticationFailure(new WebFilterExchange(exchange, chain), exception))
                 .verifyComplete();
 
-        verify(auditService).record(eq(null), eq("unknown"), eq("LOGIN_ERROR"), argThat(detail -> detail.length() == 256));
+        verify(streamBridge).send(eq("loginError-out-0"), argThat(payload -> ((LoginError) payload).detail().length() == 256));
     }
 }

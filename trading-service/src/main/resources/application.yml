@@ -9,9 +9,12 @@ spring:
     username: ${SPRING_R2DBC_USERNAME:sdp}
     password: ${SPRING_R2DBC_PASSWORD:sdp}
     pool:
-      # Disabled - same reasoning as backend/application.yml's comment:
-      # keeps the plain `test` task CI-safe with no live Postgres needed
-      # just to load the Spring context.
+      # Disabled: with r2dbc-pool on the classpath, Spring Boot pools by
+      # default and eagerly opens connections on startup.
+      # TradingServiceApplicationTests (@SpringBootTest, plain unit-test
+      # tier, no Testcontainers) would then need a live Postgres just to
+      # load the Spring context - this keeps the plain `test` task
+      # CI-safe.
       enabled: false
   rabbitmq:
     host: ${SPRING_RABBITMQ_HOST:localhost}
@@ -20,13 +23,15 @@ spring:
   # #92, see ADR 0022's update) - the inbound half of trade execution.
   # tradeRequestConsumer has no `group`: single instance assumed (per ADR
   # 0022), so an anonymous queue is fine.
-  # Also: session-started (issue #93) - the Gateway (today, the monolith)
-  # publishes a fire-and-forget SESSION_STARTED event once a connection's
-  # identity is resolved; sessionStartedConsumer (com.sdp.audit.AuditService)
-  # persists it via the existing AuditService, no reply needed.
+  # Also: session-started (issue #93), login-success/login-error (issue
+  # #94) - the Gateway publishes fire-and-forget SESSION_STARTED/
+  # LOGIN_SUCCESS/LOGIN_ERROR events once a connection's identity is
+  # resolved or a login attempt completes/fails; the matching *Consumer
+  # (com.sdp.audit.AuditService) persists each via the existing
+  # AuditService, no reply needed.
   cloud:
     function:
-      definition: tradeRequestConsumer;sessionStartedConsumer
+      definition: tradeRequestConsumer;sessionStartedConsumer;loginSuccessConsumer;loginErrorConsumer
     stream:
       bindings:
         tradeRequestConsumer-in-0:
@@ -39,6 +44,10 @@ spring:
           destination: trade-rejected
         sessionStartedConsumer-in-0:
           destination: session-started
+        loginSuccessConsumer-in-0:
+          destination: login-success
+        loginErrorConsumer-in-0:
+          destination: login-error
       rabbit:
         bindings:
           tradeRequestConsumer-in-0:
@@ -49,13 +58,19 @@ spring:
               exchangeType: fanout
           tradeCreated-out-0:
             producer:
-              # Fanout: every consumer (the monolith today, the Gateway
-              # eventually) gets its own copy - see ADR 0022.
+              # Fanout: every consumer (the Gateway today) gets its own
+              # copy - see ADR 0022.
               exchangeType: fanout
           tradeRejected-out-0:
             producer:
               exchangeType: fanout
           sessionStartedConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          loginSuccessConsumer-in-0:
+            consumer:
+              exchangeType: fanout
+          loginErrorConsumer-in-0:
             consumer:
               exchangeType: fanout
 

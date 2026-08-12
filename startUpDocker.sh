@@ -1,18 +1,15 @@
 #!/usr/bin/env bash
-# Builds every Jib image (backend, and the gateway/market-data-service/
-# trading-service skeletons from #89), brings up all containers via Docker
-# Compose, and opens the UI once it's responding. See README.md's "Docker
-# Compose" section for why both the Jib build and --build are needed.
+# Builds every Jib image (gateway, market-data-service, trading-service),
+# brings up all containers via Docker Compose, and opens the UI once it's
+# responding. See README.md's "Docker Compose" section for why both the
+# Jib build and --build are needed.
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
 FRONTEND_URL="http://localhost:5173"
-BACKEND_URL="http://localhost:8080"
-
-echo "==> Building backend image (Jib)"
-(cd backend && ./gradlew jibDockerBuild)
+GATEWAY_URL="http://localhost:8080"
 
 echo "==> Building gateway, market-data-service, trading-service images (Jib)"
 (cd gateway && ./gradlew jibDockerBuild)
@@ -22,15 +19,15 @@ echo "==> Building gateway, market-data-service, trading-service images (Jib)"
 echo "==> Starting containers"
 docker compose up --build -d
 
-echo "==> Waiting for backend and frontend to respond"
+echo "==> Waiting for gateway and frontend to respond"
 for _ in $(seq 1 30); do
-  backend_up=false
+  gateway_up=false
   frontend_up=false
-  # -s (no -f): any response counts as "up", including the backend's 404 on /
-  curl -s -o /dev/null "$BACKEND_URL" && backend_up=true || true
+  # -s (no -f): any response counts as "up", including the gateway's 404 on /
+  curl -s -o /dev/null "$GATEWAY_URL" && gateway_up=true || true
   curl -s -o /dev/null "$FRONTEND_URL" && frontend_up=true || true
 
-  if $backend_up && $frontend_up; then
+  if $gateway_up && $frontend_up; then
     break
   fi
   sleep 1
@@ -46,7 +43,7 @@ else
 fi
 
 echo
-echo "Backend:  $BACKEND_URL (ws://localhost:8080/ws)"
+echo "Gateway:  $GATEWAY_URL (ws://localhost:8080/ws)"
 echo "Frontend: $FRONTEND_URL"
 echo "Logs:     docker compose logs -f"
 echo "Stop:     ./stopAllDocker.sh"
