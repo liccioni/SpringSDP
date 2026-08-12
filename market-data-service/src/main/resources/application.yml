@@ -1,3 +1,10 @@
+server:
+  # No host-published port in docker-compose.yml (ADR 0021: internal-only),
+  # but running natively (README's "Without Docker" path) puts this on the
+  # same host network as gateway/trading-service - an explicit port keeps
+  # the three from all defaulting to 8080 and colliding.
+  port: 8082
+
 spring:
   application:
     name: market-data-service

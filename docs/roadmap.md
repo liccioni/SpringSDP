@@ -92,15 +92,15 @@ Reversed "no microservices." Split the monolith into three services, connected v
 
 ⸻
 
-## MVP 0.8 – Session lifecycle & cleanup
+## MVP 0.8 – Session lifecycle & cleanup ✅ Done
 
-Closes two gaps left over from earlier milestones: no logout flow exists since Keycloak login shipped in MVP 0.6, and pending trades submitted but never confirmed or cancelled leak forever once their connection closes (flagged and deliberately deferred during MVP 0.5's execution-workflow work, #27).
+See [retro 0008](retros/0008-mvp-0.8.md) for what shipped, what was verified, and what was learned. Closed two gaps left over from earlier milestones: no logout flow existed since Keycloak login shipped in MVP 0.6, and pending trades submitted but never confirmed or cancelled leaked forever once their connection closed (flagged and deliberately deferred during MVP 0.5's execution-workflow work, #27).
 
-* a real logout flow (OIDC RP-Initiated Logout), ending both the app's own Spring Session and Keycloak's SSO session
-* pending trades cancelled automatically when their owning session's WebSocket connection closes
+* a real logout flow (OIDC RP-Initiated Logout), ending both the app's own Spring Session and Keycloak's SSO session (#102, [ADR 0023](decisions/0023-oidc-rp-initiated-logout.md))
+* pending trades cancelled automatically when their owning session's WebSocket connection closes (#79, [ADR 0024](decisions/0024-cancel-pending-trades-on-disconnect.md))
 
 ⸻
 
 ## What's next
 
-MVP 0.1 through 0.7 are done. MVP 0.8 is planned (2 issues, see the [MVP 0.8](https://github.com/liccioni/SpringSDP/milestone/8) GitHub milestone) but not yet started. Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#103](https://github.com/liccioni/SpringSDP/issues/103) (reverse proxy) remain open, deliberately unscheduled per CLAUDE.md's Core philosophy - no concrete need for either has arrived yet.
+MVP 0.1 through 0.8 are done. No milestone is currently scheduled. Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#103](https://github.com/liccioni/SpringSDP/issues/103) (reverse proxy) remain open, deliberately unscheduled per CLAUDE.md's Core philosophy - no concrete need for either has arrived yet.

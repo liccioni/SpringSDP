@@ -1,3 +1,10 @@
+server:
+  # Same reasoning as market-data-service's application.yml: no
+  # host-published port under Docker (ADR 0021), but native/bootRun runs
+  # all three services on the same host network, so each needs its own
+  # explicit port to avoid colliding with gateway's 8080.
+  port: 8083
+
 spring:
   application:
     name: trading-service
