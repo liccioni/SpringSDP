@@ -487,6 +487,36 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 		assertThat(cancelled.quantity()).isEqualByComparingTo("300000");
 	}
 
+	// Proves issue #79/ADR 0024: closing the connection with a trade still
+	// PENDING cancels it automatically, without the client ever sending
+	// CANCEL_TRADE itself. Never sending CANCEL_TRADE and simply letting the
+	// handler Mono complete (rather than blocking on session.receive()
+	// indefinitely) is what closes this connection - the same idiom
+	// sendsHelloEnvelopeOnConnect already relies on.
+	@Test
+	void closingTheConnectionCancelsItsStillPendingTrade() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		AtomicReference<String> pendingId = new AtomicReference<>();
+		TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0860"), new BigDecimal("400000"));
+
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
+			Mono<Void> sendCreateTrade = sendEnvelope(session, "CREATE_TRADE", request)
+					.delaySubscription(Duration.ofMillis(200));
+
+			Mono<Void> receiveTradePending = session.receive()
+					.map(WebSocketMessage::getPayloadAsText)
+					.filter(text -> text.contains("TRADE_PENDING"))
+					.next()
+					.flatMap(this::extractPendingTradeId)
+					.doOnNext(pendingId::set)
+					.then();
+
+			return sendCreateTrade.and(receiveTradePending);
+		}).block(Duration.ofSeconds(5));
+
+		fakeTradingService.awaitCancellation(pendingId.get(), Duration.ofSeconds(5)).block();
+	}
+
 	private Mono<String> extractPendingTradeId(String tradePendingText) {
 		return Mono.fromCallable(() -> {
 			Envelope envelope = objectMapper.readValue(tradePendingText, Envelope.class);

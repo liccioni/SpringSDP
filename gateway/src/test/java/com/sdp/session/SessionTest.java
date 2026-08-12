@@ -20,4 +20,11 @@ class SessionTest {
 
         assertThat(session.subscriptions()).isNotNull();
     }
+
+    @Test
+    void ownsItsOwnPendingTradeIds() {
+        Session session = new Session("connection-1", "trader1");
+
+        assertThat(session.pendingTrades()).isNotNull();
+    }
 }

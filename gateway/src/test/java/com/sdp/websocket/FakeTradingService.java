@@ -27,6 +27,11 @@ import org.springframework.amqp.rabbit.connection.ConnectionFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.amqp.rabbit.listener.SimpleMessageListenerContainer;
 
+import java.time.Duration;
+
+import reactor.core.publisher.Mono;
+import reactor.core.publisher.Sinks;
+
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -49,6 +54,9 @@ class FakeTradingService {
     private final SimpleMessageListenerContainer container;
     private final Map<String, PendingTrade> pendingTrades = new ConcurrentHashMap<>();
     private final List<Trade> history = new CopyOnWriteArrayList<>();
+    // Lets SdpWebSocketHandlerIT observe a disconnect-triggered CANCEL_TRADE
+    // (issue #79) without polling this.pendingTrades on a sleep loop.
+    private final Sinks.Many<String> cancelledIds = Sinks.many().multicast().onBackpressureBuffer();
 
     FakeTradingService(ConnectionFactory connectionFactory, AmqpAdmin amqpAdmin, RabbitTemplate rabbitTemplate, ObjectMapper objectMapper) {
         this.rabbitTemplate = rabbitTemplate;
@@ -110,7 +118,12 @@ class FakeTradingService {
             reply(command, "NOOP", null);
             return;
         }
+        cancelledIds.tryEmitNext(pending.id());
         reply(command, "TRADE_CANCELLED", pending);
+    }
+
+    Mono<Void> awaitCancellation(String id, Duration timeout) {
+        return cancelledIds.asFlux().filter(id::equals).next().timeout(timeout).then();
     }
 
     private void handleGetTradeHistory(TradeCommand command) {
