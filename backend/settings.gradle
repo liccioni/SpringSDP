@@ -1,8 +1,0 @@
-rootProject.name = 'sdp-backend'
-
-// Composite build: consumes the sibling `contracts` library as
-// `implementation 'com.sdp:contracts'` in build.gradle, without publishing
-// it anywhere - see gateway/settings.gradle's comment and ADR 0022. As of
-// #90, backend is a temporary consumer of PRICE_TICK messages shaped by
-// this module.
-includeBuild('../contracts')

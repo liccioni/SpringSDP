@@ -1,5 +1,7 @@
 package com.sdp.audit;
 
+import com.sdp.contracts.LoginError;
+import com.sdp.contracts.LoginSuccess;
 import com.sdp.contracts.SessionStarted;
 
 import java.time.Duration;
@@ -33,10 +35,10 @@ public class AuditService {
                 UUID.randomUUID().toString(), sessionId, username, eventType, detail, Instant.now()));
     }
 
-    // The Gateway (today, the monolith - see ADR 0022's update for issue
-    // #93) publishes this once a connection's identity is resolved; this
-    // service's own AuditService.record is the only thing that changes how
-    // SESSION_STARTED reaches Postgres, not what gets recorded. Same
+    // The Gateway (issue #93's ADR 0022 update) publishes this once a
+    // connection's identity is resolved; this service's own
+    // AuditService.record is the only thing that changes how SESSION_STARTED
+    // reaches Postgres, not what gets recorded. Same
     // blocking-on-listener-thread reasoning as TradeService's
     // tradeRequestConsumer(): the binder's own message-listener thread, not
     // a reactive HTTP/WS thread, so blocking here for proper at-least-once
@@ -44,5 +46,21 @@ public class AuditService {
     @Bean
     public Consumer<SessionStarted> sessionStartedConsumer() {
         return event -> record(event.sessionId(), event.username(), "SESSION_STARTED", "").block(Duration.ofSeconds(10));
+    }
+
+    // The Gateway (issue #94's ADR 0022 update) publishes these from its
+    // own OAuth2 login success/failure handlers - the last two events that
+    // used to reach Postgres via a direct in-process AuditService call in
+    // the monolith, now that the Gateway itself has no database access.
+    // sessionId is always null for both: no Session (ADR 0017) exists yet
+    // at login time, matching this table's existing convention.
+    @Bean
+    public Consumer<LoginSuccess> loginSuccessConsumer() {
+        return event -> record(null, event.username(), "LOGIN_SUCCESS", "").block(Duration.ofSeconds(10));
+    }
+
+    @Bean
+    public Consumer<LoginError> loginErrorConsumer() {
+        return event -> record(null, event.username(), "LOGIN_ERROR", event.detail()).block(Duration.ofSeconds(10));
     }
 }

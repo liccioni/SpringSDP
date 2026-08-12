@@ -1,4 +1,4 @@
-package com.sdp.gateway;
+package com.sdp;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;

@@ -6,7 +6,7 @@
 
 Before opening the WebSocket connection, the client authenticates via Keycloak (OAuth2 authorization code grant): a top-level browser navigation to `GET /oauth2/authorization/keycloak` redirects to Keycloak's hosted login page, which redirects back once the user logs in. There is no `POST /login` or custom login form — see [ADR 0020](decisions/0020-keycloak-oauth2-redis-session.md), superseding [ADR 0016](decisions/0016-authentication.md).
 
-Login establishes a Redis-backed Spring Session, identified by a cookie for the `localhost` domain. Cookies aren't port-scoped, so this cookie is attached automatically to the WebSocket handshake even though the frontend and backend run on different ports. `SdpWebSocketHandler` requires an authenticated session on `/ws` (enforced by Spring Security's filter chain, before `handle()` is ever invoked) — an unauthenticated upgrade attempt fails with a non-`101` response (Spring Security's default entry point, a redirect toward Keycloak), never reaching a HELLO.
+Login establishes a Redis-backed Spring Session, identified by a cookie for the `localhost` domain. Cookies aren't port-scoped, so this cookie is attached automatically to the WebSocket handshake even though the frontend and the Gateway run on different ports. `SdpWebSocketHandler` requires an authenticated session on `/ws` (enforced by Spring Security's filter chain, before `handle()` is ever invoked) — an unauthenticated upgrade attempt fails with a non-`101` response (Spring Security's default entry point, a redirect toward Keycloak), never reaching a HELLO.
 
 ## Session
 
@@ -55,9 +55,9 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 
 ## Endpoint
 
-The backend exposes a WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type — plus Spring Security's own OAuth2 login endpoints (`/oauth2/authorization/keycloak`, `/login/oauth2/code/keycloak`) on the same port.
+The Gateway exposes a WebSocket endpoint at `/ws` on port 8080 (Spring Boot default) — one connection carries every event type via the envelope's `type` field, rather than a socket per event type — plus Spring Security's own OAuth2 login endpoints (`/oauth2/authorization/keycloak`, `/login/oauth2/code/keycloak`) on the same port. The Gateway is the only service exposed to the browser (see [ADR 0022](decisions/0022-service-topology.md)); Market Data Service and Backend/Trading Service are reachable only from other containers on the internal Docker network (see [ADR 0021](decisions/0021-rabbitmq-network-segmentation.md)).
 
-The frontend connects directly to the WebSocket URL (no dev-server proxy) via a `VITE_WS_URL` environment variable, defaulting to `ws://localhost:8080/ws` for local `npm run dev` — identity now rides on the session cookie, not a query parameter. This same default also applies when running under Docker Compose: the *browser*, not the frontend container, opens the WebSocket connection, so it needs the backend's host-published port rather than a Docker-internal service name. If the connection fails to authenticate, `socket.ts` redirects the browser to `VITE_LOGIN_URL` (defaulting to `http://localhost:8080/oauth2/authorization/keycloak`), for the same host-published-port reason.
+The frontend connects directly to the WebSocket URL (no dev-server proxy) via a `VITE_WS_URL` environment variable, defaulting to `ws://localhost:8080/ws` for local `npm run dev` — identity now rides on the session cookie, not a query parameter. This same default also applies when running under Docker Compose: the *browser*, not the frontend container, opens the WebSocket connection, so it needs the Gateway's host-published port rather than a Docker-internal service name. If the connection fails to authenticate, `socket.ts` redirects the browser to `VITE_LOGIN_URL` (defaulting to `http://localhost:8080/oauth2/authorization/keycloak`), for the same host-published-port reason.
 
 ⸻
 

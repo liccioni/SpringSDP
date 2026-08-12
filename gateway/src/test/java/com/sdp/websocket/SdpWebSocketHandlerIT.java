@@ -5,7 +5,6 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 import io.netty.handler.codec.http.websocketx.WebSocketClientHandshakeException;
 
-import com.sdp.PostgresIntegrationTest;
 import com.sdp.RabbitMqIntegrationTest;
 import com.sdp.RedisIntegrationTest;
 import com.sdp.common.PriceTick;
@@ -63,7 +62,7 @@ import reactor.core.publisher.Mono;
 // inside a JUnit test is disproportionate for this project's scale.
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 @Tag("integration")
-class SdpWebSocketHandlerIT implements PostgresIntegrationTest, RedisIntegrationTest, RabbitMqIntegrationTest {
+class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegrationTest {
 
 	@LocalServerPort
 	private int port;

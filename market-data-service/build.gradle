@@ -55,8 +55,8 @@ tasks.named('jacocoTestReport') {
 
 jib {
 	from {
-		// eclipse-temurin:21-jre, pinned by digest - same base image as
-		// backend's, see ADR 0005.
+		// eclipse-temurin:21-jre, pinned by digest - same base image every
+		// service in this repo uses, see ADR 0005.
 		image = 'eclipse-temurin@sha256:8cef5fc7bebe421363ab543a2f4db5caf7d119d8db67d56b0f56c485d2de4d55'
 	}
 	to {

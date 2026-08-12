@@ -53,15 +53,15 @@ Every change, including changes to CLAUDE.md, goes through a pull request into `
 
 GitHub Actions runs a single `CI` workflow (`.github/workflows/ci.yml`) on every pull request and on push to `main`.
 
-* A `detect` job checks whether `backend/` or `frontend/` exist yet. Until they do, the `backend` and `frontend` jobs report as skipped (passing), so CI stays green during early scaffolding.
-* The `backend` job runs `./gradlew test`, `./gradlew integrationTest`, and `./gradlew jacocoTestReport`.
+* A `detect` job checks whether `frontend/` or `gateway/build.gradle` exist yet. Until they do, the `frontend`/`services` jobs report as skipped (passing), so CI stays green during early scaffolding.
+* The `services` job is a matrix over `gateway`, `market-data-service`, and `trading-service` — each runs `./gradlew test` and `./gradlew jacocoTestReport`; `gateway` and `trading-service` also run `./gradlew integrationTest` (both have real Testcontainers-backed integration tests). Required status checks on `main` name each matrix entry individually (`services (gateway)`, `services (market-data-service)`, `services (trading-service)`), not just `services`.
 * The `frontend` job runs `npm run test:unit`, `npm run test:integration`, `npm run build`, and `npm run test:coverage`.
 
-Any change that scaffolds the backend or frontend must provide these exact Gradle tasks / npm scripts so CI keeps working without further changes to the workflow file.
+Any change that scaffolds a new service or the frontend must provide these exact Gradle tasks / npm scripts so CI keeps working without further changes to the workflow file.
 
 See [Testing](testing.md) for what these tasks and scripts mean and how coverage is handled.
 
-**If GitHub Actions itself is degraded or down** (check [githubstatus.com](https://www.githubstatus.com/) — a run stuck `queued` with a "job was not acquired by Runner" annotation, or a PR with no workflow run at all despite a fresh push, are both symptoms): this repo's branch protection on `main` has `enforce_admins: true`, so `gh pr merge --admin` does **not** bypass the required `backend`/`frontend` checks — there is no forced-merge escape hatch short of temporarily editing branch protection itself, which needs the user's explicit go-ahead (it's a repo security setting, not just a merge). The accepted fallback, only with the user's explicit per-PR authorization: run the exact same steps the `backend`/`frontend` jobs run locally (see above), and merge normally once they pass — GitHub still requires an actual completed check to allow the merge, so this only unblocks things once a run manages to complete. Once the outage clears, a PR whose webhook event was dropped during the incident will *not* automatically get a CI run — push an empty commit (`git commit --allow-empty`) to generate a fresh trigger.
+**If GitHub Actions itself is degraded or down** (check [githubstatus.com](https://www.githubstatus.com/) — a run stuck `queued` with a "job was not acquired by Runner" annotation, or a PR with no workflow run at all despite a fresh push, are both symptoms): this repo's branch protection on `main` has `enforce_admins: true`, so `gh pr merge --admin` does **not** bypass the required `frontend`/`services (*)` checks — there is no forced-merge escape hatch short of temporarily editing branch protection itself, which needs the user's explicit go-ahead (it's a repo security setting, not just a merge). The accepted fallback, only with the user's explicit per-PR authorization: run the exact same steps those jobs run locally (see above), and merge normally once they pass — GitHub still requires an actual completed check to allow the merge, so this only unblocks things once a run manages to complete. Once the outage clears, a PR whose webhook event was dropped during the incident will *not* automatically get a CI run — push an empty commit (`git commit --allow-empty`) to generate a fresh trigger.
 
 ⸻
 

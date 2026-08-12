@@ -9,18 +9,12 @@ jobs:
   detect:
     runs-on: ubuntu-latest
     outputs:
-      backend: ${{ steps.check.outputs.backend }}
       frontend: ${{ steps.check.outputs.frontend }}
       services: ${{ steps.check.outputs.services }}
     steps:
       - uses: actions/checkout@v4
       - id: check
         run: |
-          if [ -f backend/build.gradle ] || [ -f backend/build.gradle.kts ]; then
-            echo "backend=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "backend=false" >> "$GITHUB_OUTPUT"
-          fi
           if [ -f frontend/package.json ]; then
             echo "frontend=true" >> "$GITHUB_OUTPUT"
           else
@@ -32,46 +26,12 @@ jobs:
             echo "services=false" >> "$GITHUB_OUTPUT"
           fi
 
-  backend:
-    needs: detect
-    if: needs.detect.outputs.backend == 'true'
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
-          cache: gradle
-      - run: chmod +x ./gradlew
-      - name: Unit tests
-        run: ./gradlew test
-      - name: Integration tests
-        run: ./gradlew integrationTest
-      - name: Coverage report
-        run: ./gradlew jacocoTestReport
-      - name: Coverage summary
-        if: always()
-        run: |
-          CSV=$(find build/reports/jacoco -name '*.csv' | head -n1)
-          if [ -n "$CSV" ]; then
-            awk -F, 'NR>1 {mi+=$8; ci+=$9} END {if (mi+ci>0) printf "**Backend line coverage:** %.1f%%\n", (ci/(mi+ci))*100; else print "**Backend line coverage:** n/a"}' "$CSV" >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - uses: actions/upload-artifact@v4
-        if: always()
-        with:
-          name: backend-coverage-report
-          path: backend/build/reports/jacoco
-
-  # gateway, market-data-service, trading-service (#89). One matrix job
-  # covers all three rather than duplicating the `backend` job three times.
-  # Only trading-service has an integration task registered so far - it's
-  # the only one with a test tagged "integration" (see docs/testing.md:
-  # only add the task/tests when a change genuinely crosses a boundary).
-  # gateway/market-data-service stay on unit tests only until they need one.
+  # gateway, market-data-service, trading-service. One matrix job covers
+  # all three rather than three duplicated jobs. gateway and trading-service
+  # both have integration-tagged tests (real Testcontainers-backed
+  # RabbitMQ/Redis/Postgres wiring); market-data-service stays on unit tests
+  # only until it needs one (see docs/testing.md: only add the task/tests
+  # when a change genuinely crosses a boundary).
   services:
     needs: detect
     if: needs.detect.outputs.services == 'true'
@@ -93,7 +53,7 @@ jobs:
       - name: Unit tests
         run: ./gradlew test
       - name: Integration tests
-        if: matrix.service == 'trading-service'
+        if: matrix.service == 'gateway' || matrix.service == 'trading-service'
         run: ./gradlew integrationTest
       - name: Coverage report
         run: ./gradlew jacocoTestReport

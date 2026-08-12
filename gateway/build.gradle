@@ -21,19 +21,49 @@ repositories {
 }
 
 dependencies {
-	// Pure transport, no Postgres access (see issue #89) - webflux + actuator
-	// is the whole footprint until #90-#93 migrate real flows onto this
-	// service.
+	// Pure transport, no Postgres access (see ADR 0022) - the only service
+	// exposed to the browser as of #94's decommission, terminating the real
+	// WebSocket connection and the OAuth2 login flow the monolith used to.
 	implementation 'org.springframework.boot:spring-boot-starter-webflux'
 	implementation 'org.springframework.boot:spring-boot-starter-actuator'
+	// Keycloak (authorization code grant) + Redis-backed Spring Session -
+	// absorbed from the monolith as of #94, see ADR 0020.
+	implementation 'org.springframework.boot:spring-boot-starter-oauth2-client'
+	implementation 'org.springframework.boot:spring-boot-starter-data-redis-reactive'
+	implementation 'org.springframework.session:spring-session-data-redis'
+	// No spring-cloud-dependencies BOM - same reasoning as
+	// market-data-service/build.gradle's comment.
+	implementation 'org.springframework.cloud:spring-cloud-starter-stream-rabbit:5.0.2'
 	implementation 'com.sdp:contracts'
 
 	testImplementation 'org.springframework.boot:spring-boot-starter-test'
+	testImplementation 'org.springframework.security:spring-security-test'
+	testImplementation 'org.springframework.boot:spring-boot-testcontainers'
+	testImplementation 'org.testcontainers:testcontainers-junit-jupiter'
+	testImplementation 'org.testcontainers:testcontainers-rabbitmq'
+	testImplementation 'io.projectreactor:reactor-test'
 	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
 }
 
 tasks.named('test') {
-	useJUnitPlatform()
+	useJUnitPlatform {
+		excludeTags 'integration'
+	}
+}
+
+tasks.register('integrationTest', Test) {
+	description = 'Runs integration tests (tagged "integration").'
+	group = 'verification'
+	useJUnitPlatform {
+		includeTags 'integration'
+	}
+	testClassesDirs = sourceSets.test.output.classesDirs
+	classpath = sourceSets.test.runtimeClasspath
+	shouldRunAfter tasks.named('test')
+}
+
+tasks.named('check') {
+	dependsOn tasks.named('integrationTest')
 }
 
 jacoco {
@@ -51,8 +81,8 @@ tasks.named('jacocoTestReport') {
 
 jib {
 	from {
-		// eclipse-temurin:21-jre, pinned by digest - same base image as
-		// backend's, see ADR 0005.
+		// eclipse-temurin:21-jre, pinned by digest - same base image every
+		// service in this repo uses, see ADR 0005.
 		image = 'eclipse-temurin@sha256:8cef5fc7bebe421363ab543a2f4db5caf7d119d8db67d56b0f56c485d2de4d55'
 	}
 	to {

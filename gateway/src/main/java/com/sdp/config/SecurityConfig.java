@@ -13,10 +13,11 @@ import org.springframework.session.data.redis.config.annotation.web.server.Enabl
  * everything else (Spring Security's own oauth2Login endpoints) is open,
  * since this app has no other HTTP surface of its own left once POST /login
  * was retired. AuditingAuthenticationSuccessHandler/AuditingAuthentication-
- * FailureHandler record LOGIN_SUCCESS/LOGIN_ERROR (ADR 0019/0020, issue
- * #87) before performing the same redirects oauth2Login would otherwise do
- * inline (success, to the frontend origin) or by default (failure, to
- * /login?error).
+ * FailureHandler publish LOGIN_SUCCESS/LOGIN_ERROR over RabbitMQ for the
+ * Backend/Trading Service to audit (ADR 0019/0020, issue #87; issue #94's
+ * update to ADR 0022) before performing the same redirects oauth2Login
+ * would otherwise do inline (success, to the frontend origin) or by
+ * default (failure, to /login?error).
  *
  * @EnableRedisWebSession is explicit rather than property-triggered
  * auto-configuration: spring-session-data-redis ships no Spring Boot
