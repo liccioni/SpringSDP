@@ -74,3 +74,22 @@ purposes since it was introduced (issue #117).
   the UX. A `viewer` can still click Buy/Sell and will see a
   `TRADE_REJECTED` come back; a follow-up UI-only issue can hide the
   controls entirely if that experience turns out to matter.
+* **Real gap found while live-verifying this fix**: Keycloak's built-in
+  `roles` client scope (a default scope on `sdp-backend`, confirmed via the
+  admin API) only sets `access.token.claim: true` on its "realm roles"
+  protocol mapper - `id.token.claim` is unset (defaults to `false`), so
+  `realm_access.roles` never actually reached the ID token
+  `KeycloakRealmRoleOidcUserService` reads. Without this, every login
+  mapped to an empty role set, and the `viewer` fix's `!roles.contains
+  ("trader")` check rejected *everyone*, `trader1` included - not visible
+  from unit/integration tests (they construct `Session`/`TradeCommand`
+  directly with an explicit role set, bypassing the real Keycloak token
+  path entirely), only surfaced by logging in as `trader1` through the
+  actual `docker compose` stack. Fixed by adding an explicit client-level
+  `protocolMappers` entry to `sdp-backend` in `keycloak/sdp-realm.json`
+  (`oidc-usermodel-realm-role-mapper`, `id.token.claim: true`), which
+  layers on top of the default scope's mapper rather than replacing it.
+  Per the existing "Keycloak only re-imports on a freshly created
+  container" gotcha (ADR 0020's Consequences), any environment with a
+  running `keycloak` container needs `docker compose up -d
+  --force-recreate keycloak` to pick this up.
