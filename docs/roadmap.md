@@ -92,6 +92,15 @@ Reversed "no microservices." Split the monolith into three services, connected v
 
 ⸻
 
+## MVP 0.8 – Session lifecycle & cleanup
+
+Closes two gaps left over from earlier milestones: no logout flow exists since Keycloak login shipped in MVP 0.6, and pending trades submitted but never confirmed or cancelled leak forever once their connection closes (flagged and deliberately deferred during MVP 0.5's execution-workflow work, #27).
+
+* a real logout flow (OIDC RP-Initiated Logout), ending both the app's own Spring Session and Keycloak's SSO session
+* pending trades cancelled automatically when their owning session's WebSocket connection closes
+
+⸻
+
 ## What's next
 
-MVP 0.1 through 0.7 are done. No MVP 0.8 has been scoped yet - see CLAUDE.md's Core philosophy section for what's still deliberately unreversed ("no Kafka"). Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#79](https://github.com/liccioni/SpringSDP/issues/79) (cancel pending trades on disconnect) remain open and are intended to land on `trading-service` whenever they're picked up next.
+MVP 0.1 through 0.7 are done. MVP 0.8 is planned (2 issues, see the [MVP 0.8](https://github.com/liccioni/SpringSDP/milestone/8) GitHub milestone) but not yet started. Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues) and [#103](https://github.com/liccioni/SpringSDP/issues/103) (reverse proxy) remain open, deliberately unscheduled per CLAUDE.md's Core philosophy - no concrete need for either has arrived yet.
