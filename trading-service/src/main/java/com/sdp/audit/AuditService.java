@@ -2,6 +2,7 @@ package com.sdp.audit;
 
 import com.sdp.contracts.LoginError;
 import com.sdp.contracts.LoginSuccess;
+import com.sdp.contracts.Logout;
 import com.sdp.contracts.SessionStarted;
 
 import java.time.Duration;
@@ -62,5 +63,16 @@ public class AuditService {
     @Bean
     public Consumer<LoginError> loginErrorConsumer() {
         return event -> record(null, event.username(), "LOGIN_ERROR", event.detail()).block(Duration.ofSeconds(10));
+    }
+
+    // The Gateway (issue #102's ADR 0023) publishes this once
+    // AuditingLogoutSuccessHandler's onLogoutSuccess runs, before
+    // redirecting the browser to Keycloak's end-session endpoint. sessionId
+    // is null for the same reason it is on LOGIN_SUCCESS/LOGIN_ERROR: the
+    // security layer has no access to the app's own connection-scoped
+    // Session (ADR 0017).
+    @Bean
+    public Consumer<Logout> logoutConsumer() {
+        return event -> record(null, event.username(), "LOGOUT", "").block(Duration.ofSeconds(10));
     }
 }

@@ -105,7 +105,7 @@ got here from the original single-process monolith.
 
 Every event crossing a service boundary rides one of RabbitMQ's fanout
 exchanges (`PRICE_TICK`, `TRADE_CREATED`/`TRADE_REJECTED`, `SESSION_STARTED`,
-`LOGIN_SUCCESS`/`LOGIN_ERROR`) or the correlated `trade-requests`/
+`LOGIN_SUCCESS`/`LOGIN_ERROR`/`LOGOUT`) or the correlated `trade-requests`/
 `trade-responses` request/reply pair (`CREATE_TRADE`/`CONFIRM_TRADE`/
 `CANCEL_TRADE`/`GET_TRADE_HISTORY`) - see [protocol.md](protocol.md) for the
 wire shapes and [ADR 0022](decisions/0022-service-topology.md) for why each

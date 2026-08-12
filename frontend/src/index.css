@@ -77,6 +77,12 @@ body {
   color: var(--text-dim);
 }
 
+.shell__header-actions {
+  display: flex;
+  align-items: center;
+  gap: 1rem;
+}
+
 .status-pill {
   display: flex;
   align-items: center;
@@ -84,6 +90,24 @@ body {
   font-family: var(--font-data);
   font-size: 0.8rem;
   color: var(--text-dim);
+}
+
+.logout-button {
+  font-family: var(--font-data);
+  font-size: 0.75rem;
+  letter-spacing: 0.04em;
+  color: var(--text-dim);
+  background: transparent;
+  border: 1px solid var(--hairline);
+  border-radius: 3px;
+  padding: 0.35rem 0.65rem;
+  cursor: pointer;
+  transition: color 120ms ease-out, border-color 120ms ease-out;
+}
+
+.logout-button:hover {
+  color: var(--ink);
+  border-color: var(--amber);
 }
 
 .status-dot {

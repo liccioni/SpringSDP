@@ -99,6 +99,8 @@ spring:
           destination: login-success
         loginError-out-0:
           destination: login-error
+        logout-out-0:
+          destination: logout
       rabbit:
         bindings:
           priceTickConsumer-in-0:
@@ -125,6 +127,9 @@ spring:
           loginError-out-0:
             producer:
               exchangeType: fanout
+          logout-out-0:
+            producer:
+              exchangeType: fanout
 
 app:
   # Frontend origin the browser is redirected back to once oauth2Login
@@ -133,6 +138,12 @@ app:
   # (not the frontend container) handles this redirect, so it always sees
   # the host-published origin - see docs/protocol.md's Endpoint section.
   frontend-origin: ${APP_FRONTEND_ORIGIN:http://localhost:5173}
+  keycloak:
+    # Browser-driven, same as authorization-uri above (see that comment) -
+    # AuditingLogoutSuccessHandler redirects the browser here directly, so
+    # it stays at its host-published default under Docker Compose too and
+    # is deliberately not overridden in docker-compose.yml. See ADR 0023.
+    end-session-uri: ${KEYCLOAK_END_SESSION_URI:http://localhost:8081/realms/sdp/protocol/openid-connect/logout}
 
 management:
   endpoints:
