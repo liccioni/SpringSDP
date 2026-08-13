@@ -7,6 +7,8 @@ import com.sdp.contracts.PendingTradeId;
 import com.sdp.contracts.Side;
 import com.sdp.contracts.TradeCommand;
 import com.sdp.contracts.TradeCommandResult;
+import com.sdp.contracts.TradeHistoryPage;
+import com.sdp.contracts.TradeHistoryQuery;
 import com.sdp.contracts.TradeRequest;
 
 import java.math.BigDecimal;
@@ -187,7 +189,7 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
     }
 
     @Test
-    void getTradeHistoryRepliesWithThePersistedHistory() {
+    void getTradeHistoryRepliesWithAPageContainingThePersistedTrade() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0900"), new BigDecimal("400000"));
         tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", Set.of("trader"), "CREATE_TRADE", request)).block(Duration.ofSeconds(5));
         PendingTrade pending = objectMapper.convertValue(receiveResponse().payload(), PendingTrade.class);
@@ -197,16 +199,17 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
         rabbitTemplate.receive(tradeCreatedQueue, 5000);
 
         String correlationId = UUID.randomUUID().toString();
-        tradeService.handle(new TradeCommand(correlationId, "trader1", Set.of("trader"), "GET_TRADE_HISTORY", null)).block(Duration.ofSeconds(5));
+        TradeHistoryQuery query = new TradeHistoryQuery(1000, null, null, null);
+        tradeService.handle(new TradeCommand(correlationId, "trader1", Set.of("trader"), "GET_TRADE_HISTORY", query)).block(Duration.ofSeconds(5));
 
         TradeCommandResult reply = receiveResponse();
         assertThat(reply.correlationId()).isEqualTo(correlationId);
         assertThat(reply.type()).isEqualTo("TRADE_HISTORY");
-        List<com.sdp.contracts.Trade> history = objectMapper.convertValue(reply.payload(), new tools.jackson.core.type.TypeReference<List<com.sdp.contracts.Trade>>() {
-        });
+        TradeHistoryPage page = objectMapper.convertValue(reply.payload(), TradeHistoryPage.class);
+        List<com.sdp.contracts.Trade> rows = page.rows();
         // Other tests in this class persist trades against the same shared
         // container/table - assert this trade is present, not an exact list.
-        assertThat(history).anySatisfy(trade -> {
+        assertThat(rows).anySatisfy(trade -> {
             assertThat(trade.id()).isEqualTo(pending.id());
             assertThat(trade.symbol()).isEqualTo("EUR/USD");
         });
