@@ -5,6 +5,7 @@ import com.sdp.contracts.PendingTrade;
 import com.sdp.contracts.PendingTradeId;
 import com.sdp.contracts.TradeCommand;
 import com.sdp.contracts.TradeCommandResult;
+import com.sdp.contracts.TradeHistoryQuery;
 import com.sdp.contracts.TradeRequest;
 
 import java.time.Instant;
@@ -29,12 +30,14 @@ import tools.jackson.databind.ObjectMapper;
  * 0022's update, issue #92): CREATE_TRADE validates and holds a
  * PendingTrade (ADR 0018), or rejects immediately; CONFIRM_TRADE persists
  * a previously requested trade and broadcasts it; CANCEL_TRADE discards
- * one; GET_TRADE_HISTORY answers with the full persisted history. Every
- * reply (except CONFIRM_TRADE, which needs none - see below) echoes the
- * request's correlationId on "trade-responses" so the Gateway (today, the
- * monolith - see ADR 0022) can route it back to the specific connection
- * that asked. TRADE_CREATED/TRADE_REJECTED still broadcast via #91's
- * fanout exchanges, unrelated to any correlationId.
+ * one; GET_TRADE_HISTORY answers with one cursor-paginated, filterable,
+ * sortable page of history (TradeHistoryQueryService, issue #130) rather
+ * than the full persisted history. Every reply (except CONFIRM_TRADE,
+ * which needs none - see below) echoes the request's correlationId on
+ * "trade-responses" so the Gateway (today, the monolith - see ADR 0022)
+ * can route it back to the specific connection that asked.
+ * TRADE_CREATED/TRADE_REJECTED still broadcast via #91's fanout exchanges,
+ * unrelated to any correlationId.
  *
  * CONFIRM_TRADE gets no reply at all: the wire protocol never replies to
  * it either (docs/protocol.md - "an unknown or already-resolved id is a
@@ -50,13 +53,20 @@ public class TradeService {
     private static final String TRADE_RESPONSES_BINDING = "tradeResponses-out-0";
 
     private final TradeRepository tradeRepository;
+    private final TradeHistoryQueryService tradeHistoryQueryService;
     private final AuditService auditService;
     private final StreamBridge streamBridge;
     private final ObjectMapper objectMapper;
     private final Map<String, PendingTrade> pendingTrades = new ConcurrentHashMap<>();
 
-    public TradeService(TradeRepository tradeRepository, AuditService auditService, StreamBridge streamBridge, ObjectMapper objectMapper) {
+    public TradeService(
+            TradeRepository tradeRepository,
+            TradeHistoryQueryService tradeHistoryQueryService,
+            AuditService auditService,
+            StreamBridge streamBridge,
+            ObjectMapper objectMapper) {
         this.tradeRepository = tradeRepository;
+        this.tradeHistoryQueryService = tradeHistoryQueryService;
         this.auditService = auditService;
         this.streamBridge = streamBridge;
         this.objectMapper = objectMapper;
@@ -116,10 +126,9 @@ public class TradeService {
     }
 
     private Mono<Void> handleGetTradeHistory(TradeCommand command) {
-        return tradeRepository.findAllByOrderByTimestampAsc()
-                .map(this::toContract)
-                .collectList()
-                .flatMap(history -> replyTo(command, "TRADE_HISTORY", history));
+        TradeHistoryQuery query = objectMapper.convertValue(command.payload(), TradeHistoryQuery.class);
+        return tradeHistoryQueryService.query(query)
+                .flatMap(page -> replyTo(command, "TRADE_HISTORY", page));
     }
 
     private Mono<Trade> execute(PendingTrade pending, String submittedBy) {

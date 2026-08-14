@@ -6,6 +6,8 @@ import com.sdp.contracts.PendingTradeId;
 import com.sdp.contracts.Side;
 import com.sdp.contracts.TradeCommand;
 import com.sdp.contracts.TradeCommandResult;
+import com.sdp.contracts.TradeHistoryPage;
+import com.sdp.contracts.TradeHistoryQuery;
 import com.sdp.contracts.TradeRejected;
 import com.sdp.contracts.TradeRequest;
 
@@ -33,10 +35,12 @@ import static org.mockito.Mockito.when;
 class TradeServiceTest {
 
     private final TradeRepository tradeRepository = mock(TradeRepository.class);
+    private final TradeHistoryQueryService tradeHistoryQueryService = mock(TradeHistoryQueryService.class);
     private final AuditService auditService = mock(AuditService.class);
     private final StreamBridge streamBridge = mock(StreamBridge.class);
     private final ObjectMapper objectMapper = JsonMapper.builder().build();
-    private final TradeService service = new TradeService(tradeRepository, auditService, streamBridge, objectMapper);
+    private final TradeService service =
+            new TradeService(tradeRepository, tradeHistoryQueryService, auditService, streamBridge, objectMapper);
 
     @BeforeEach
     void echoBackWhateverIsSaved() {
@@ -158,15 +162,18 @@ class TradeServiceTest {
     }
 
     @Test
-    void getTradeHistoryRepliesWithThePersistedHistory() {
-        Trade trade = new Trade("t1", "EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("100000"), java.time.Instant.now());
-        when(tradeRepository.findAllByOrderByTimestampAsc()).thenReturn(reactor.core.publisher.Flux.just(trade));
+    void getTradeHistoryRepliesWithThePageFromTheQueryService() {
+        com.sdp.contracts.Trade trade = new com.sdp.contracts.Trade(
+                "t1", "EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("100000"), java.time.Instant.now());
+        TradeHistoryPage page = new TradeHistoryPage(java.util.List.of(trade), null, false);
+        TradeHistoryQuery query = new TradeHistoryQuery(50, null, null, null);
+        when(tradeHistoryQueryService.query(any(TradeHistoryQuery.class))).thenReturn(Mono.just(page));
 
-        TradeCommand command = command("GET_TRADE_HISTORY", null);
+        TradeCommand command = command("GET_TRADE_HISTORY", query);
         service.handle(command).block();
 
         TradeCommandResult reply = captureReply();
         assertThat(reply.type()).isEqualTo("TRADE_HISTORY");
-        assertThat(reply.payload()).asList().hasSize(1);
+        assertThat(reply.payload()).isEqualTo(page);
     }
 }
