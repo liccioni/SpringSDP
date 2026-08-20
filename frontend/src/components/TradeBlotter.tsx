@@ -45,6 +45,17 @@ function compareTimestampToFilterDate(filterLocalDateAtMidnight: Date, cellValue
   return cellDateAtMidnight.getTime() - filterLocalDateAtMidnight.getTime()
 }
 
+// AG Grid's date filter model wants 'yyyy-mm-dd' in local time - building it
+// from getFullYear/getMonth/getDate (rather than toISOString, which is UTC)
+// keeps "today" meaning the viewer's today, not UTC's.
+function todaysDateFilterModel() {
+  const now = new Date()
+  const yyyy = now.getFullYear()
+  const mm = String(now.getMonth() + 1).padStart(2, '0')
+  const dd = String(now.getDate()).padStart(2, '0')
+  return { filterType: 'date' as const, type: 'equals', dateFrom: `${yyyy}-${mm}-${dd}`, dateTo: null }
+}
+
 const columnDefs: ColDef<Trade>[] = [
   {
     field: 'timestamp',
@@ -65,6 +76,10 @@ const defaultColDef: ColDef<Trade> = { filter: true, floatingFilter: true, sorta
 function getRowId(params: GetRowIdParams<Trade>) {
   return params.data.id
 }
+
+// Computed once, at module load - the blotter is mounted once for the
+// lifetime of the app, so "today" here means whatever day the page loaded on.
+const initialGridState = { filter: { filterModel: { timestamp: todaysDateFilterModel() } } }
 
 function TradeBlotter() {
   const [trades, setTrades] = useState<Trade[]>([])
@@ -105,6 +120,7 @@ function TradeBlotter() {
         getRowId={getRowId}
         domLayout="autoHeight"
         rowClassRules={rowClassRules}
+        initialState={initialGridState}
         pagination
         paginationPageSize={20}
         paginationPageSizeSelector={[10, 20, 50, 100]}

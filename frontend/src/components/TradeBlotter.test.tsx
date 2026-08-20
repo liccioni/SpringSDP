@@ -5,6 +5,15 @@ import TradeBlotter from './TradeBlotter'
 
 const WS_URL = 'ws://localhost:8080/ws'
 
+// The blotter now defaults its Time column filter to today (see
+// todaysDateFilterModel in TradeBlotter.tsx), so fixture trades need a
+// timestamp that actually falls on today - a fixed past date would be
+// filtered out of the grid before these tests ever get to assert on it.
+function todayAt(hours: number, minutes: number, seconds: number): string {
+  const now = new Date()
+  return new Date(now.getFullYear(), now.getMonth(), now.getDate(), hours, minutes, seconds).toISOString()
+}
+
 describe('TradeBlotter', () => {
   let mockServer: Server
 
@@ -29,7 +38,7 @@ describe('TradeBlotter', () => {
             side: 'BUY',
             price: 1.0852,
             quantity: 1000000,
-            timestamp: '2026-01-01T00:00:00Z',
+            timestamp: todayAt(0, 0, 0),
           },
         }),
       )
@@ -54,7 +63,7 @@ describe('TradeBlotter', () => {
             side: 'SELL',
             price: 1.265,
             quantity: 500000,
-            timestamp: '2026-01-01T00:00:00Z',
+            timestamp: todayAt(0, 0, 0),
           },
         }),
       )
@@ -67,7 +76,7 @@ describe('TradeBlotter', () => {
             side: 'BUY',
             price: 149.5,
             quantity: 250000,
-            timestamp: '2026-01-01T00:00:01Z',
+            timestamp: todayAt(0, 0, 1),
           },
         }),
       )
@@ -121,7 +130,7 @@ describe('TradeBlotter', () => {
               side: 'BUY',
               price: 0.66,
               quantity: 300000,
-              timestamp: '2026-01-01T00:00:00Z',
+              timestamp: todayAt(0, 0, 0),
             },
             {
               id: 'trade-5',
@@ -129,7 +138,7 @@ describe('TradeBlotter', () => {
               side: 'SELL',
               price: 0.855,
               quantity: 400000,
-              timestamp: '2026-01-01T00:00:01Z',
+              timestamp: todayAt(0, 0, 1),
             },
           ],
         }),
@@ -158,7 +167,7 @@ describe('TradeBlotter', () => {
             side: 'BUY',
             price: 1.35,
             quantity: 200000,
-            timestamp: '2026-01-01T00:00:00Z',
+            timestamp: todayAt(0, 0, 0),
           },
         }),
       )
@@ -172,7 +181,7 @@ describe('TradeBlotter', () => {
               side: 'BUY',
               price: 1.35,
               quantity: 200000,
-              timestamp: '2026-01-01T00:00:00Z',
+              timestamp: todayAt(0, 0, 0),
             },
           ],
         }),
