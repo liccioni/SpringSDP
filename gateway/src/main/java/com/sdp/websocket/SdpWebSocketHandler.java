@@ -13,6 +13,8 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 import tools.jackson.databind.ObjectMapper;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
@@ -53,6 +55,7 @@ import reactor.core.publisher.Sinks;
 @Component
 public class SdpWebSocketHandler implements WebSocketHandler {
 
+	private static final Logger log = LoggerFactory.getLogger(SdpWebSocketHandler.class);
 	private static final String SESSION_STARTED_BINDING = "sessionStarted-out-0";
 
 	private final ObjectMapper objectMapper;
@@ -101,7 +104,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		Mono<Void> inbound = webSocketSession.receive()
 				.map(WebSocketMessage::getPayloadAsText)
-				.flatMap(text -> handleIncoming(text, session, directMessages))
+				.flatMap(text -> handleOneMessage(text, session, directMessages))
 				.then();
 
 		return webSocketSession.send(outbound).and(inbound)
@@ -121,6 +124,23 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private Mono<WebSocketMessage> toMessage(WebSocketSession session, Envelope envelope) {
 		return Mono.fromCallable(() -> objectMapper.writeValueAsString(envelope))
 				.map(session::textMessage);
+	}
+
+	// Isolates one message's processing from the connection's lifetime: without
+	// this, an error handling a single message (malformed JSON, or a
+	// downstream reply that times out - e.g. GET_TRADE_HISTORY against a
+	// trading-service that never replies) propagates through flatMap and
+	// terminates the whole inbound Flux, which silently closes the entire
+	// WebSocket connection over one bad message. Mono.defer captures a
+	// synchronous throw (e.g. objectMapper.readValue on malformed JSON) as a
+	// proper error signal so onErrorResume can catch it too, not just async
+	// errors from the returned Mono.
+	private Mono<Void> handleOneMessage(String text, Session session, Sinks.Many<Envelope> directMessages) {
+		return Mono.defer(() -> handleIncoming(text, session, directMessages))
+				.onErrorResume(error -> {
+					log.warn("Failed to handle incoming message on connection {}: {}", session.id(), error.toString());
+					return Mono.empty();
+				});
 	}
 
 	private Mono<Void> handleIncoming(String text, Session session, Sinks.Many<Envelope> directMessages) {
