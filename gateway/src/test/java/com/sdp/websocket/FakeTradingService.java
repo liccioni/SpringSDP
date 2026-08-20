@@ -126,8 +126,24 @@ class FakeTradingService {
         return cancelledIds.asFlux().filter(id::equals).next().timeout(timeout).then();
     }
 
+    // Only enough filtering to let a test tell two concurrent
+    // GET_TRADE_HISTORY replies apart by their query (real column/type
+    // allow-listing and cursor logic is trading-service's own
+    // TradeHistoryQueryService, proven independently by issue #130's tests)
+    // - this class only proves the gateway's request/reply plumbing.
     private void handleGetTradeHistory(TradeCommand command) {
-        reply(command, "TRADE_HISTORY", new ArrayList<>(history));
+        com.sdp.contracts.TradeHistoryQuery query = objectMapper.convertValue(command.payload(), com.sdp.contracts.TradeHistoryQuery.class);
+        List<Trade> matching = history.stream().filter(trade -> matches(trade, query)).toList();
+        reply(command, "TRADE_HISTORY", new com.sdp.contracts.TradeHistoryPage(matching, null, false));
+    }
+
+    private boolean matches(Trade trade, com.sdp.contracts.TradeHistoryQuery query) {
+        if (query == null || query.filters() == null) {
+            return true;
+        }
+        return query.filters().stream()
+                .filter(filter -> "symbol".equals(filter.column()) && "equals".equals(filter.type()))
+                .allMatch(filter -> trade.symbol().equals(filter.value()));
     }
 
     private String readPendingTradeId(TradeCommand command) {
