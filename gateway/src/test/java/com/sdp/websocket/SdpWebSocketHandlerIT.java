@@ -23,6 +23,8 @@ import java.time.Duration;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,6 +49,7 @@ import org.springframework.session.data.redis.ReactiveRedisSessionRepository;
 import org.springframework.web.reactive.socket.WebSocketMessage;
 import org.springframework.web.reactive.socket.WebSocketSession;
 import org.springframework.web.reactive.socket.client.ReactorNettyWebSocketClient;
+import reactor.core.publisher.ConnectableFlux;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -556,6 +559,7 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 	void answersGetTradeHistoryWithPersistedTrades() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		TradeRequest request = new TradeRequest("USD/JPY", Side.SELL, new BigDecimal("149.75"), new BigDecimal("250000"));
+		com.sdp.contracts.TradeHistoryQuery query = new com.sdp.contracts.TradeHistoryQuery(50, null, null, null);
 		AtomicReference<String> historyMessage = new AtomicReference<>();
 
 		client.execute(wsUri(), sessionCookieHeader(), session -> {
@@ -571,7 +575,7 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 					.flatMap(this::extractPendingTradeId)
 					.flatMap(id -> sendEnvelope(session, "CONFIRM_TRADE", new PendingTradeId(id)))
 					.then(incoming.filter(text -> text.contains("TRADE_CREATED")).next())
-					.then(sendEnvelope(session, "GET_TRADE_HISTORY", null));
+					.then(sendEnvelope(session, "GET_TRADE_HISTORY", query, "correlation-1"));
 
 			Mono<Void> receiveHistory = incoming
 					.filter(text -> text.contains("TRADE_HISTORY"))
@@ -584,20 +588,132 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 
 		Envelope envelope = objectMapper.readValue(historyMessage.get(), Envelope.class);
 		assertThat(envelope.type()).isEqualTo("TRADE_HISTORY");
+		assertThat(envelope.correlationId()).isEqualTo("correlation-1");
 
 		// Other tests in this class persist trades against the same shared
 		// container/table, so history isn't necessarily just this one trade -
 		// assert this trade is present rather than asserting an exact list.
-		Trade[] history = objectMapper.convertValue(envelope.payload(), Trade[].class);
-		assertThat(history).anySatisfy(trade -> {
+		com.sdp.contracts.TradeHistoryPage page = objectMapper.convertValue(envelope.payload(), com.sdp.contracts.TradeHistoryPage.class);
+		assertThat(page.rows()).anySatisfy(trade -> {
 			assertThat(trade.symbol()).isEqualTo("USD/JPY");
-			assertThat(trade.side()).isEqualTo(Side.SELL);
+			assertThat(trade.side()).isEqualTo(com.sdp.contracts.Side.SELL);
 			assertThat(trade.quantity()).isEqualByComparingTo("250000");
 		});
 	}
 
+	// Proves the query payload actually round-trips over the wire and through
+	// RabbitMQ (issue #131) - not that filtering itself is correct, which is
+	// trading-service's own TradeHistoryQueryService and its issue #130 tests.
+	@Test
+	void answersAFilteredGetTradeHistoryRequestWithOnlyMatchingTrades() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		TradeRequest request = new TradeRequest("GBP/USD", Side.BUY, new BigDecimal("1.2670"), new BigDecimal("600000"));
+		com.sdp.contracts.TradeHistoryQuery filteredQuery = new com.sdp.contracts.TradeHistoryQuery(
+				50, null, new com.sdp.contracts.TradeSort("timestamp", true),
+				List.of(new com.sdp.contracts.TradeFilter("symbol", "equals", "GBP/USD", null)));
+		AtomicReference<String> historyMessage = new AtomicReference<>();
+
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
+			Flux<String> incoming = session.receive().map(WebSocketMessage::getPayloadAsText).share();
+
+			Mono<Void> createThenRequestHistory = sendEnvelope(session, "CREATE_TRADE", request)
+					.delaySubscription(Duration.ofMillis(200))
+					.then(incoming.filter(text -> text.contains("TRADE_PENDING")).next())
+					.flatMap(this::extractPendingTradeId)
+					.flatMap(id -> sendEnvelope(session, "CONFIRM_TRADE", new PendingTradeId(id)))
+					.then(incoming.filter(text -> text.contains("TRADE_CREATED")).next())
+					.then(sendEnvelope(session, "GET_TRADE_HISTORY", filteredQuery, "correlation-filtered"));
+
+			Mono<Void> receiveHistory = incoming
+					.filter(text -> text.contains("TRADE_HISTORY"))
+					.next()
+					.doOnNext(historyMessage::set)
+					.then();
+
+			return createThenRequestHistory.and(receiveHistory);
+		}).block(Duration.ofSeconds(5));
+
+		Envelope envelope = objectMapper.readValue(historyMessage.get(), Envelope.class);
+		com.sdp.contracts.TradeHistoryPage page = objectMapper.convertValue(envelope.payload(), com.sdp.contracts.TradeHistoryPage.class);
+		assertThat(page.rows()).isNotEmpty();
+		assertThat(page.rows()).allSatisfy(trade -> assertThat(trade.symbol()).isEqualTo("GBP/USD"));
+	}
+
+	// Proves the correlation mechanism itself (issue #131): two
+	// GET_TRADE_HISTORY requests in flight at once on the same connection,
+	// each carrying a distinct correlationId and a distinct filter, both
+	// resolve to their own caller rather than crossing wires.
+	@Test
+	void concurrentGetTradeHistoryRequestsEachResolveToTheirOwnCorrelationId() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		TradeRequest eurRequest = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0870"), new BigDecimal("200000"));
+		TradeRequest jpyRequest = new TradeRequest("USD/JPY", Side.SELL, new BigDecimal("149.90"), new BigDecimal("300000"));
+		com.sdp.contracts.TradeHistoryQuery eurQuery = new com.sdp.contracts.TradeHistoryQuery(
+				50, null, null, List.of(new com.sdp.contracts.TradeFilter("symbol", "equals", "EUR/USD", null)));
+		com.sdp.contracts.TradeHistoryQuery jpyQuery = new com.sdp.contracts.TradeHistoryQuery(
+				50, null, null, List.of(new com.sdp.contracts.TradeFilter("symbol", "equals", "USD/JPY", null)));
+		Map<String, String> repliesByCorrelationId = new ConcurrentHashMap<>();
+
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
+			// .publish()+.connect() rather than .share(): the two
+			// createAndConfirm() calls below subscribe to (and fully drain)
+			// `incoming` one after another, with nothing else subscribed in
+			// between - .share()'s refCount would drop to zero and try to
+			// re-subscribe to session.receive() for the second call, which
+			// Reactor Netty's WebSocketSession rejects outright
+			// ("Rejecting additional inbound receiver"). connect() once,
+			// up front, decouples the single underlying subscription from
+			// however many downstream subscribers come and go afterward.
+			ConnectableFlux<String> incoming = session.receive().map(WebSocketMessage::getPayloadAsText).publish();
+			incoming.connect();
+
+			Mono<Void> seedBothTrades = createAndConfirm(session, incoming, eurRequest)
+					.then(createAndConfirm(session, incoming, jpyRequest));
+
+			Mono<Void> requestBothHistoriesConcurrently = Mono.when(
+					sendEnvelope(session, "GET_TRADE_HISTORY", eurQuery, "correlation-eur"),
+					sendEnvelope(session, "GET_TRADE_HISTORY", jpyQuery, "correlation-jpy"));
+
+			Mono<Void> collectBothReplies = incoming
+					.filter(text -> text.contains("TRADE_HISTORY"))
+					.map(text -> objectMapper.readValue(text, Envelope.class))
+					.doOnNext(envelope -> repliesByCorrelationId.put(envelope.correlationId(), text(envelope)))
+					.take(2)
+					.then();
+
+			return seedBothTrades.then(requestBothHistoriesConcurrently.and(collectBothReplies));
+		}).block(Duration.ofSeconds(5));
+
+		com.sdp.contracts.TradeHistoryPage eurPage = objectMapper.convertValue(
+				objectMapper.readValue(repliesByCorrelationId.get("correlation-eur"), Envelope.class).payload(),
+				com.sdp.contracts.TradeHistoryPage.class);
+		com.sdp.contracts.TradeHistoryPage jpyPage = objectMapper.convertValue(
+				objectMapper.readValue(repliesByCorrelationId.get("correlation-jpy"), Envelope.class).payload(),
+				com.sdp.contracts.TradeHistoryPage.class);
+
+		assertThat(eurPage.rows()).allSatisfy(trade -> assertThat(trade.symbol()).isEqualTo("EUR/USD"));
+		assertThat(jpyPage.rows()).allSatisfy(trade -> assertThat(trade.symbol()).isEqualTo("USD/JPY"));
+	}
+
+	private String text(Envelope envelope) {
+		return objectMapper.writeValueAsString(envelope);
+	}
+
+	private Mono<Void> createAndConfirm(WebSocketSession session, Flux<String> incoming, TradeRequest request) {
+		return sendEnvelope(session, "CREATE_TRADE", request)
+				.then(incoming.filter(text -> text.contains("TRADE_PENDING")).next())
+				.flatMap(this::extractPendingTradeId)
+				.flatMap(id -> sendEnvelope(session, "CONFIRM_TRADE", new PendingTradeId(id)))
+				.then(incoming.filter(text -> text.contains("TRADE_CREATED")).next())
+				.then();
+	}
+
 	private Mono<Void> sendEnvelope(WebSocketSession session, String type, Object payload) {
-		return Mono.fromCallable(() -> objectMapper.writeValueAsString(new Envelope(type, payload)))
+		return sendEnvelope(session, type, payload, null);
+	}
+
+	private Mono<Void> sendEnvelope(WebSocketSession session, String type, Object payload, String correlationId) {
+		return Mono.fromCallable(() -> objectMapper.writeValueAsString(new Envelope(type, payload, correlationId)))
 				.map(session::textMessage)
 				.flatMap(message -> session.send(Mono.just(message)));
 	}

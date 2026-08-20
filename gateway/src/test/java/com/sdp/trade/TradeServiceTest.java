@@ -122,21 +122,38 @@ class TradeServiceTest {
 
     @Test
     void historyResolvesFromTheHistoryReply() {
-        var historyFlux = service.history();
+        com.sdp.contracts.TradeHistoryQuery query = new com.sdp.contracts.TradeHistoryQuery(50, null, null, null);
+
+        var pageMono = service.history(query, "client-correlation-1");
         TradeCommand sent = captureSentCommand();
         assertThat(sent.type()).isEqualTo("GET_TRADE_HISTORY");
+        assertThat(sent.correlationId()).isEqualTo("client-correlation-1");
+        assertThat(sent.payload()).isEqualTo(query);
 
         com.sdp.contracts.Trade older = new com.sdp.contracts.Trade(
                 "1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.08"), new BigDecimal("100"), Instant.parse("2026-01-01T00:00:00Z"));
-        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_HISTORY", List.of(older)));
+        com.sdp.contracts.TradeHistoryPage page = new com.sdp.contracts.TradeHistoryPage(List.of(older), null, false);
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_HISTORY", page));
 
-        StepVerifier.create(historyFlux)
-                .assertNext(trade -> {
-                    assertThat(trade.id()).isEqualTo("1");
-                    assertThat(trade.symbol()).isEqualTo("EUR/USD");
-                    assertThat(trade.side()).isEqualTo(Side.BUY);
-                })
-                .verifyComplete();
+        com.sdp.contracts.TradeHistoryPage result = pageMono.block(Duration.ofSeconds(2));
+        assertThat(result.rows()).hasSize(1);
+        assertThat(result.rows().get(0).id()).isEqualTo("1");
+        assertThat(result.rows().get(0).symbol()).isEqualTo("EUR/USD");
+        assertThat(result.hasMore()).isFalse();
+    }
+
+    @Test
+    void historyFallsBackToAGeneratedCorrelationIdWhenTheClientSuppliedNone() {
+        com.sdp.contracts.TradeHistoryQuery query = new com.sdp.contracts.TradeHistoryQuery(50, null, null, null);
+
+        var pageMono = service.history(query, null);
+        TradeCommand sent = captureSentCommand();
+        assertThat(sent.correlationId()).isNotBlank();
+
+        com.sdp.contracts.TradeHistoryPage page = new com.sdp.contracts.TradeHistoryPage(List.of(), null, false);
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_HISTORY", page));
+
+        assertThat(pageMono.block(Duration.ofSeconds(2)).rows()).isEmpty();
     }
 
     @Test

@@ -16,11 +16,9 @@ import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.context.annotation.Bean;
 import org.springframework.stereotype.Service;
 
-import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 import reactor.core.publisher.Sinks;
 
-import tools.jackson.core.type.TypeReference;
 import tools.jackson.databind.ObjectMapper;
 
 /**
@@ -82,9 +80,14 @@ public class TradeService {
                         : Mono.empty());
     }
 
-    public Flux<Trade> history() {
-        return send("GET_TRADE_HISTORY", null, null, Set.of())
-                .flatMapMany(result -> Flux.fromIterable(convertHistory(result.payload())));
+    // The client-supplied correlationId (issue #131) is reused as-is for the
+    // RabbitMQ-level TradeCommand.correlationId(), collapsing what would
+    // otherwise be two separate ids into one for this flow - falls back to
+    // a fresh one only when the client didn't send one.
+    public Mono<com.sdp.contracts.TradeHistoryPage> history(com.sdp.contracts.TradeHistoryQuery query, String correlationId) {
+        String effectiveCorrelationId = correlationId != null ? correlationId : UUID.randomUUID().toString();
+        return send("GET_TRADE_HISTORY", query, null, Set.of(), effectiveCorrelationId)
+                .map(result -> objectMapper.convertValue(result.payload(), com.sdp.contracts.TradeHistoryPage.class));
     }
 
     @Bean
@@ -110,20 +113,15 @@ public class TradeService {
     }
 
     private Mono<com.sdp.contracts.TradeCommandResult> send(String type, Object payload, String submittedBy, Set<String> roles) {
-        String correlationId = UUID.randomUUID().toString();
+        return send(type, payload, submittedBy, roles, UUID.randomUUID().toString());
+    }
+
+    private Mono<com.sdp.contracts.TradeCommandResult> send(String type, Object payload, String submittedBy, Set<String> roles, String correlationId) {
         Sinks.One<com.sdp.contracts.TradeCommandResult> sink = Sinks.one();
         pendingReplies.put(correlationId, sink);
         streamBridge.send(TRADE_REQUESTS_BINDING, new com.sdp.contracts.TradeCommand(correlationId, submittedBy, roles, type, payload));
         return sink.asMono()
                 .timeout(REPLY_TIMEOUT)
                 .doFinally(signal -> pendingReplies.remove(correlationId));
-    }
-
-    private java.util.List<Trade> convertHistory(Object payload) {
-        java.util.List<com.sdp.contracts.Trade> contractTrades = objectMapper.convertValue(payload, new TypeReference<java.util.List<com.sdp.contracts.Trade>>() {
-        });
-        return contractTrades.stream()
-                .map(t -> new Trade(t.id(), t.symbol(), Side.valueOf(t.side().name()), t.price(), t.quantity(), t.timestamp()))
-                .toList();
     }
 }

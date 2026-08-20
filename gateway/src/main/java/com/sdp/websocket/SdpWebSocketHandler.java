@@ -1,5 +1,6 @@
 package com.sdp.websocket;
 
+import com.sdp.contracts.TradeHistoryQuery;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
 import com.sdp.session.Session;
@@ -130,7 +131,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 			case "CANCEL_TRADE" -> handleCancelTrade(envelope, session, directMessages);
 			case "SUBSCRIBE" -> handleSubscribe(envelope, session);
 			case "UNSUBSCRIBE" -> handleUnsubscribe(envelope, session);
-			case "GET_TRADE_HISTORY" -> handleGetTradeHistory(directMessages);
+			case "GET_TRADE_HISTORY" -> handleGetTradeHistory(envelope, directMessages);
 			default -> Mono.empty();
 		};
 	}
@@ -177,10 +178,10 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 		return objectMapper.convertValue(envelope.payload(), SubscriptionRequest.class).symbol();
 	}
 
-	private Mono<Void> handleGetTradeHistory(Sinks.Many<Envelope> directMessages) {
-		return tradeService.history()
-				.collectList()
-				.doOnNext(trades -> emitDirect(directMessages, new Envelope("TRADE_HISTORY", trades)))
+	private Mono<Void> handleGetTradeHistory(Envelope envelope, Sinks.Many<Envelope> directMessages) {
+		TradeHistoryQuery query = objectMapper.convertValue(envelope.payload(), TradeHistoryQuery.class);
+		return tradeService.history(query, envelope.correlationId())
+				.doOnNext(page -> emitDirect(directMessages, new Envelope("TRADE_HISTORY", page, envelope.correlationId())))
 				.then();
 	}
 
