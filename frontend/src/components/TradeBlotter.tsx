@@ -36,8 +36,24 @@ function mergeTrades(current: Trade[], incoming: Trade[]): Trade[] {
   return [...byId.values()].sort((a, b) => b.timestamp.localeCompare(a.timestamp))
 }
 
+// Trade.timestamp is an ISO-8601 string, not a Date - agDateColumnFilter
+// needs a comparator to know how to weigh the filter's chosen calendar day
+// against it (falls back to a plain text "contains" filter without one).
+function compareTimestampToFilterDate(filterLocalDateAtMidnight: Date, cellValue: string): number {
+  const cellDate = new Date(cellValue)
+  const cellDateAtMidnight = new Date(cellDate.getFullYear(), cellDate.getMonth(), cellDate.getDate())
+  return cellDateAtMidnight.getTime() - filterLocalDateAtMidnight.getTime()
+}
+
 const columnDefs: ColDef<Trade>[] = [
-  { field: 'timestamp', headerName: 'Time', valueFormatter: (params) => formatTimeOfDay(params.value), flex: 0.8 },
+  {
+    field: 'timestamp',
+    headerName: 'Time',
+    valueFormatter: (params) => formatTimeOfDay(params.value),
+    filter: 'agDateColumnFilter',
+    filterParams: { comparator: compareTimestampToFilterDate },
+    flex: 0.8,
+  },
   { field: 'symbol', headerName: 'Symbol', cellClass: 'cell-symbol', flex: 1 },
   { field: 'side', headerName: 'Side', cellRenderer: SideBadge, flex: 0.7 },
   { field: 'price', headerName: 'Price', type: 'rightAligned', flex: 1 },
