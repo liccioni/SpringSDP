@@ -89,13 +89,23 @@ describe('ExecutionConfirmation', () => {
     expect(rejection).toHaveClass('execution-confirmation--rejected')
   })
 
-  it('renders nothing until a trade has been confirmed', () => {
+  // Unlike the other tests in this file, nothing here ever renders a
+  // 'status'/'alert' role to await - but the mock connection still needs
+  // time to actually open before the test (and its cleanup) returns. Without
+  // this wait, the socket is unmounted (and closed) while still CONNECTING;
+  // mock-socket's own close event dispatch is deferred via a timer and can
+  // fire after Vitest has torn down this file's jsdom environment for the
+  // next one, so socket.ts's close handler's `window.location.href` redirect
+  // (for a connection that never opened) throws `window is not defined`
+  // instead of a `ReferenceError` (issue #142) - a genuine, if rare, race.
+  it('renders nothing until a trade has been confirmed', async () => {
     mockServer.on('connection', (socket) => {
       socket.send(JSON.stringify({ type: 'PRICE_TICK', payload: { symbol: 'NZD/USD', bid: 0.61, ask: 0.6102 } }))
     })
 
     render(<ExecutionConfirmation />)
 
+    await new Promise((resolve) => setTimeout(resolve, 50))
     expect(screen.queryByRole('status')).not.toBeInTheDocument()
   })
 })
