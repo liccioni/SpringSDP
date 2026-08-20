@@ -319,6 +319,40 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 		assertThat(received).noneMatch(text -> text.contains("GBP/USD"));
 	}
 
+	// Reproduces a real bug found live-testing MVP 1.0's blotter (issue #138):
+	// a WebSocket message whose handling errors (malformed JSON here; a
+	// GET_TRADE_HISTORY reply that never arrives and times out was the case
+	// that surfaced this live) used to propagate through handleIncoming's
+	// flatMap and terminate the whole inbound Flux, silently closing the
+	// connection over one bad message - the connection this happened to just
+	// went quiet forever, invisible to the client. Malformed JSON exercises
+	// the same handleOneMessage error boundary far faster than waiting out a
+	// real 10-second reply timeout.
+	@Test
+	void aMalformedIncomingMessageDoesNotCloseTheConnection() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0870"), new BigDecimal("100000"));
+		AtomicReference<String> received = new AtomicReference<>();
+
+		client.execute(wsUri(), sessionCookieHeader(), session -> {
+			Mono<Void> sendGarbageThenCreateTrade = session.send(Mono.just(session.textMessage("not valid json")))
+					.delaySubscription(Duration.ofMillis(200))
+					.then(sendEnvelope(session, "CREATE_TRADE", request));
+
+			Mono<Void> receiveTradePending = session.receive()
+					.map(WebSocketMessage::getPayloadAsText)
+					.filter(text -> text.contains("TRADE_PENDING"))
+					.next()
+					.doOnNext(received::set)
+					.then();
+
+			return sendGarbageThenCreateTrade.and(receiveTradePending);
+		}).block(Duration.ofSeconds(5));
+
+		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
+		assertThat(envelope.type()).isEqualTo("TRADE_PENDING");
+	}
+
 	@Test
 	void createTradeRepliesWithATradePendingToTheSubmitterOnly() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
