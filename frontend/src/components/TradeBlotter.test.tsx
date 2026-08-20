@@ -115,7 +115,10 @@ describe('TradeBlotter', () => {
     render(<TradeBlotter />)
 
     await waitFor(() => expect(received).toBeDefined())
-    expect(JSON.parse(received!)).toEqual({ type: 'GET_TRADE_HISTORY' })
+    expect(JSON.parse(received!)).toEqual({
+      type: 'GET_TRADE_HISTORY',
+      payload: { pageSize: 1000, cursor: null, sort: null, filters: null },
+    })
   })
 
   it('populates rows from TRADE_HISTORY, oldest-first payload displayed newest-first', async () => {
@@ -123,24 +126,28 @@ describe('TradeBlotter', () => {
       socket.send(
         JSON.stringify({
           type: 'TRADE_HISTORY',
-          payload: [
-            {
-              id: 'trade-4',
-              symbol: 'AUD/USD',
-              side: 'BUY',
-              price: 0.66,
-              quantity: 300000,
-              timestamp: todayAt(0, 0, 0),
-            },
-            {
-              id: 'trade-5',
-              symbol: 'EUR/GBP',
-              side: 'SELL',
-              price: 0.855,
-              quantity: 400000,
-              timestamp: todayAt(0, 0, 1),
-            },
-          ],
+          payload: {
+            rows: [
+              {
+                id: 'trade-4',
+                symbol: 'AUD/USD',
+                side: 'BUY',
+                price: 0.66,
+                quantity: 300000,
+                timestamp: todayAt(0, 0, 0),
+              },
+              {
+                id: 'trade-5',
+                symbol: 'EUR/GBP',
+                side: 'SELL',
+                price: 0.855,
+                quantity: 400000,
+                timestamp: todayAt(0, 0, 1),
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
       )
     })
@@ -174,16 +181,20 @@ describe('TradeBlotter', () => {
       socket.send(
         JSON.stringify({
           type: 'TRADE_HISTORY',
-          payload: [
-            {
-              id: 'trade-6',
-              symbol: 'USD/CAD',
-              side: 'BUY',
-              price: 1.35,
-              quantity: 200000,
-              timestamp: todayAt(0, 0, 0),
-            },
-          ],
+          payload: {
+            rows: [
+              {
+                id: 'trade-6',
+                symbol: 'USD/CAD',
+                side: 'BUY',
+                price: 1.35,
+                quantity: 200000,
+                timestamp: todayAt(0, 0, 0),
+              },
+            ],
+            nextCursor: null,
+            hasMore: false,
+          },
         }),
       )
     })

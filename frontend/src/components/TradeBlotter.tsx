@@ -11,6 +11,7 @@ import {
 import { connect } from '../services/socket'
 import { tradingTheme } from '../theme/tradingTheme'
 import type { Trade } from '../types/trade'
+import type { TradeHistoryPage, TradeHistoryQuery } from '../types/tradeHistory'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
@@ -81,6 +82,15 @@ function getRowId(params: GetRowIdParams<Trade>) {
 // lifetime of the app, so "today" here means whatever day the page loaded on.
 const initialGridState = { filter: { filterModel: { timestamp: todaysDateFilterModel() } } }
 
+// trading-service requires a real TradeHistoryQuery (issue #130) - a bare
+// GET_TRADE_HISTORY with no payload NPEs there and never replies (issue
+// #144). This grid still filters/sorts/paginates entirely client-side (AG
+// Grid's default row model, unchanged since MVP 0.9's #118), so a single
+// large page approximates "give me everything recent" rather than actually
+// paginating server-side - proper server-side paging via AG Grid's Infinite
+// Row Model is #132's job.
+const HISTORY_QUERY: TradeHistoryQuery = { pageSize: 1000, cursor: null, sort: null, filters: null }
+
 function TradeBlotter() {
   const [trades, setTrades] = useState<Trade[]>([])
 
@@ -91,12 +101,12 @@ function TradeBlotter() {
           const trade = envelope.payload as Trade
           setTrades((current) => mergeTrades(current, [trade]))
         } else if (envelope.type === 'TRADE_HISTORY') {
-          const history = envelope.payload as Trade[]
-          setTrades((current) => mergeTrades(current, history))
+          const page = envelope.payload as TradeHistoryPage
+          setTrades((current) => mergeTrades(current, page.rows))
         }
       },
       () => {
-        socket.send(JSON.stringify({ type: 'GET_TRADE_HISTORY' }))
+        socket.send(JSON.stringify({ type: 'GET_TRADE_HISTORY', payload: HISTORY_QUERY }))
       },
     )
 
