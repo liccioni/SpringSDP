@@ -34,9 +34,22 @@ public class KeycloakRealmRoleOidcUserService implements ReactiveOAuth2UserServi
 
     @Override
     public Mono<OidcUser> loadUser(OidcUserRequest userRequest) {
-        return delegate.loadUser(userRequest)
-                .map(oidcUser -> new DefaultOidcUser(
-                        realmRoleAuthorities(oidcUser.getIdToken().getClaims()), oidcUser.getIdToken(), oidcUser.getUserInfo()));
+        return delegate.loadUser(userRequest).map(this::withRealmRolesAndUsername);
+    }
+
+    /**
+     * {@link DefaultOidcUser}'s no-name-attribute-key constructor defaults
+     * {@code getName()} to the {@code sub} claim, silently ignoring this
+     * app's {@code user-name-attribute: preferred_username} config (that
+     * property only applies to the plain OAuth2 {@code DefaultOAuth2User}
+     * path, not OIDC's {@code DefaultOidcUser}) - see issue #127.
+     */
+    OidcUser withRealmRolesAndUsername(OidcUser oidcUser) {
+        return new DefaultOidcUser(
+                realmRoleAuthorities(oidcUser.getIdToken().getClaims()),
+                oidcUser.getIdToken(),
+                oidcUser.getUserInfo(),
+                "preferred_username");
     }
 
     @SuppressWarnings("unchecked")
