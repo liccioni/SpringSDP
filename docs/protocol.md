@@ -26,6 +26,8 @@ Session starts (`SESSION_STARTED`) and terminal trading outcomes (`TRADE_EXECUTE
 
 All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010](decisions/0010-event-driven-protocol.md) for why the protocol is event-driven and envelope-shaped, and [ADR 0008](decisions/0008-use-raw-websockets.md) for why it rides on raw WebSockets rather than a higher-level messaging framework.
 
+The envelope also carries an optional `correlationId` field — a generic, reusable request/reply correlation mechanism (issue #131, [ADR 0026](decisions/0026-cursor-paginated-trade-history.md)) letting a reply be matched back to the request that triggered it. It's currently populated only for `GET_TRADE_HISTORY`/`TRADE_HISTORY`, where AG Grid's Infinite Row Model can have more than one request in flight at once per connection; every other message type omits it (`null`).
+
 ## Server → client
 
 * HELLO — payload: a personalized greeting string (e.g. `"Hello, trader1!"`) built from the connection's Session. Sent once, immediately after a connection authenticates; never broadcast.
@@ -34,7 +36,7 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 * TRADE_CREATED — payload: a `Trade`, with the same `id` as the `PendingTrade` it was confirmed from. Sent in reply to `CONFIRM_TRADE`.
 * TRADE_CANCELLED — payload: the cancelled `PendingTrade`. Sent only to the connection that requested the cancellation, in reply to `CANCEL_TRADE`; never broadcast.
 * TRADE_REJECTED
-* TRADE_HISTORY — payload: an array of `Trade`, oldest first. Sent only to the connection that requested it, in reply to `GET_TRADE_HISTORY`; never broadcast.
+* TRADE_HISTORY — payload: a `TradeHistoryPage` (`rows` — an array of `Trade`, newest first by default; `nextCursor` — an opaque cursor string for the next page, `null` once exhausted; `hasMore`). Sent only to the connection that requested it, carrying the same `correlationId` as the `GET_TRADE_HISTORY` it replies to; never broadcast. See [ADR 0026](decisions/0026-cursor-paginated-trade-history.md) for the cursor/keyset pagination this replaces unbounded history loading with.
 
 ## Client → server
 
@@ -43,7 +45,7 @@ All messages are JSON, wrapped in an envelope with a `type` field. See [ADR 0010
 * CANCEL_TRADE — payload `{ "id": "<pending trade id>" }`. Discards a previously requested pending trade and replies with a targeted `TRADE_CANCELLED`. An unknown or already-resolved id is a silent no-op.
 * SUBSCRIBE — payload `{ "symbol": "EUR/USD" }`. Starts delivery of `PRICE_TICK` for that symbol to this connection.
 * UNSUBSCRIBE — same payload shape. Stops delivery of `PRICE_TICK` for that symbol to this connection.
-* GET_TRADE_HISTORY — no payload. Answered with a `TRADE_HISTORY` envelope.
+* GET_TRADE_HISTORY — payload: a `TradeHistoryQuery` (`pageSize`; `cursor` — `null` for the first page, otherwise the prior `TradeHistoryPage.nextCursor`; `sort` — a single `{column, descending}` pair, `null` for the default `timestamp` descending order; `filters` — a list of single-condition column filters, `null`/empty for none). Answered with a `TRADE_HISTORY` envelope carrying a matching `correlationId`. See [ADR 0026](decisions/0026-cursor-paginated-trade-history.md) for why cursor/keyset pagination was chosen over offset/page-number, and the v1 scope cuts (single-column sort, single-condition filters).
 
 ⸻
 
