@@ -27,9 +27,14 @@ import reactor.core.publisher.Mono;
  * OIDC discovery (issuer-uri) - deliberately not configured, same reasoning
  * as ADR 0020 - see ADR 0023.
  *
- * The principal is always an OidcUser here: oauth2Login's scope includes
- * "openid" (application.yml), so Spring Security always resolves it via
- * OidcReactiveOAuth2UserService rather than a plain OAuth2User.
+ * The principal is an OidcUser for a real, still-valid OIDC login -
+ * oauth2Login's scope includes "openid" (application.yml), so Spring
+ * Security normally resolves it via OidcReactiveOAuth2UserService rather
+ * than a plain OAuth2User. But if the session backing the request has
+ * already expired or was otherwise invalidated (issue #126), Spring
+ * Security falls back to an anonymous Authentication with a plain String
+ * principal instead - there's no id_token_hint to give Keycloak in that
+ * case, so logout just redirects to the frontend origin directly.
  */
 @Component
 public class AuditingLogoutSuccessHandler implements ServerLogoutSuccessHandler {
@@ -58,13 +63,15 @@ public class AuditingLogoutSuccessHandler implements ServerLogoutSuccessHandler 
                 .then(Mono.defer(() -> {
                     ServerHttpResponse response = webFilterExchange.getExchange().getResponse();
                     response.setStatusCode(HttpStatus.FOUND);
-                    response.getHeaders().setLocation(endSessionUri(authentication));
+                    response.getHeaders().setLocation(redirectUri(authentication));
                     return response.setComplete();
                 }));
     }
 
-    private URI endSessionUri(Authentication authentication) {
-        OidcUser oidcUser = (OidcUser) authentication.getPrincipal();
+    private URI redirectUri(Authentication authentication) {
+        if (!(authentication.getPrincipal() instanceof OidcUser oidcUser)) {
+            return URI.create(frontendOrigin);
+        }
         return UriComponentsBuilder.fromUriString(endSessionUri)
                 .queryParam("id_token_hint", oidcUser.getIdToken().getTokenValue())
                 .queryParam("post_logout_redirect_uri", frontendOrigin)

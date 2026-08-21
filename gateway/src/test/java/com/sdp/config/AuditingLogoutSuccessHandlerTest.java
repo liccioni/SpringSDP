@@ -11,6 +11,7 @@ import org.springframework.cloud.stream.function.StreamBridge;
 import org.springframework.http.HttpStatus;
 import org.springframework.mock.http.server.reactive.MockServerHttpRequest;
 import org.springframework.mock.web.server.MockServerWebExchange;
+import org.springframework.security.authentication.AnonymousAuthenticationToken;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.security.oauth2.client.authentication.OAuth2AuthenticationToken;
@@ -73,5 +74,20 @@ class AuditingLogoutSuccessHandlerTest {
                 .verifyComplete();
 
         verify(streamBridge).send("logout-out-0", new Logout("trader2"));
+    }
+
+    @Test
+    void redirectsToFrontendOriginWhenSessionAlreadyExpired() {
+        ServerWebExchange exchange = MockServerWebExchange.from(MockServerHttpRequest.post("/logout"));
+        WebFilterChain chain = mock(WebFilterChain.class);
+        Authentication authentication = new AnonymousAuthenticationToken(
+                "key", "anonymousUser", List.of(new SimpleGrantedAuthority("ROLE_ANONYMOUS")));
+
+        StepVerifier.create(handler.onLogoutSuccess(new WebFilterExchange(exchange, chain), authentication))
+                .verifyComplete();
+
+        assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FOUND);
+        assertThat(exchange.getResponse().getHeaders().getLocation().toString())
+                .isEqualTo("http://localhost:5173");
     }
 }
