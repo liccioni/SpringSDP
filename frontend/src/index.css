@@ -164,6 +164,13 @@ body {
   width: 100%;
 }
 
+/* AG Grid's Infinite Row Model (issue #132) virtualizes rows, which needs a
+   fixed viewport height to know how much to virtualize - unlike domLayout
+   "autoHeight" (client-side row model), it can't size itself to its content. */
+.panel__grid--fixed-height {
+  height: 420px;
+}
+
 .trade-ticket {
   display: flex;
   align-items: center;
