@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen } from '@testing-library/react'
 import { Server, WebSocket as MockWebSocket } from 'mock-socket'
 import ExecutionConfirmation from './ExecutionConfirmation'
+import { resetForTests } from '../services/socket'
 
 const WS_URL = 'ws://localhost:8080/ws'
 
@@ -9,6 +10,7 @@ describe('ExecutionConfirmation', () => {
   let mockServer: Server
 
   beforeEach(() => {
+    resetForTests()
     vi.stubGlobal('WebSocket', MockWebSocket)
     mockServer = new Server(WS_URL)
   })

@@ -104,13 +104,15 @@ function toFilters(filterModel: IGetRowsParams['filterModel']): TradeFilter[] | 
 // order. A request for a startRow whose cursor was never recorded (a hard
 // scrollbar-drag jump) restarts from cursor=null rather than reconstructing
 // an arbitrary offset - an accepted v1 limitation for a live trade blotter.
+type SendFn = (message: { type: string; payload: unknown; correlationId?: string }) => void
+
 export class TradeHistoryDatasource implements IDatasource {
-  private readonly socket: WebSocket
+  private readonly send: SendFn
   private readonly pendingByCorrelationId = new Map<string, PendingRequest>()
   private readonly cursorByBlockStart = new Map<number, string | null>([[0, null]])
 
-  constructor(socket: WebSocket) {
-    this.socket = socket
+  constructor(send: SendFn) {
+    this.send = send
   }
 
   getRows(params: IGetRowsParams): void {
@@ -136,7 +138,7 @@ export class TradeHistoryDatasource implements IDatasource {
       timeout: setTimeout(() => this.fail(correlationId), REQUEST_TIMEOUT_MS),
     })
 
-    this.socket.send(JSON.stringify({ type: 'GET_TRADE_HISTORY', payload: query, correlationId }))
+    this.send({ type: 'GET_TRADE_HISTORY', payload: query, correlationId })
   }
 
   handleReply(correlationId: string, page: TradeHistoryPage): void {

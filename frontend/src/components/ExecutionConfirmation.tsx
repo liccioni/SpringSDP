@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { connect } from '../services/socket'
+import { subscribe } from '../services/socket'
 import type { Trade } from '../types/trade'
 import type { TradeRejected } from '../types/tradeRejected'
 
@@ -11,15 +11,16 @@ function ExecutionConfirmation() {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null)
 
   useEffect(() => {
-    const socket = connect((envelope) => {
-      if (envelope.type === 'TRADE_CREATED') {
-        setConfirmation({ outcome: 'accepted', trade: envelope.payload as Trade })
-      } else if (envelope.type === 'TRADE_REJECTED') {
-        setConfirmation({ outcome: 'rejected', rejection: envelope.payload as TradeRejected })
-      }
-    })
-
-    return () => socket.close()
+    const unsubscribeCreated = subscribe('TRADE_CREATED', (envelope) =>
+      setConfirmation({ outcome: 'accepted', trade: envelope.payload as Trade }),
+    )
+    const unsubscribeRejected = subscribe('TRADE_REJECTED', (envelope) =>
+      setConfirmation({ outcome: 'rejected', rejection: envelope.payload as TradeRejected }),
+    )
+    return () => {
+      unsubscribeCreated()
+      unsubscribeRejected()
+    }
   }, [])
 
   useEffect(() => {

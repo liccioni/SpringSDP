@@ -3,6 +3,7 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { Server, WebSocket as MockWebSocket } from 'mock-socket'
 import PriceGrid from './PriceGrid'
+import { resetForTests } from '../services/socket'
 
 const WS_URL = 'ws://localhost:8080/ws'
 
@@ -10,6 +11,7 @@ describe('PriceGrid', () => {
   let mockServer: Server
 
   beforeEach(() => {
+    resetForTests()
     vi.stubGlobal('WebSocket', MockWebSocket)
     mockServer = new Server(WS_URL)
   })

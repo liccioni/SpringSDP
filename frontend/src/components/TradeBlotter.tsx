@@ -10,7 +10,7 @@ import {
   type ICellRendererParams,
   type RowClassRules,
 } from 'ag-grid-community'
-import { connect } from '../services/socket'
+import { send, subscribe } from '../services/socket'
 import { tradingTheme } from '../theme/tradingTheme'
 import { TradeHistoryDatasource } from '../services/tradeHistoryDatasource'
 import { debounce } from '../utils/debounce'
@@ -109,23 +109,24 @@ function TradeBlotter() {
   )
 
   useEffect(() => {
-    const socket = connect(
-      (envelope) => {
-        if (envelope.type === 'TRADE_HISTORY' && envelope.correlationId) {
-          const page = envelope.payload as TradeHistoryPage
-          datasourceRef.current?.handleReply(envelope.correlationId, page)
-        } else if (envelope.type === 'TRADE_CREATED') {
-          setLatestTradeId((envelope.payload as Trade).id)
-          refreshTrades()
-        }
-      },
-      () => {
-        datasourceRef.current = new TradeHistoryDatasource(socket)
-        gridApiRef.current?.setGridOption('datasource', datasourceRef.current)
-      },
-    )
+    const datasource = new TradeHistoryDatasource(send)
+    datasourceRef.current = datasource
+    gridApiRef.current?.setGridOption('datasource', datasource)
 
-    return () => socket.close()
+    const unsubscribeHistory = subscribe('TRADE_HISTORY', (envelope) => {
+      if (envelope.correlationId) {
+        datasource.handleReply(envelope.correlationId, envelope.payload as TradeHistoryPage)
+      }
+    })
+    const unsubscribeCreated = subscribe('TRADE_CREATED', (envelope) => {
+      setLatestTradeId((envelope.payload as Trade).id)
+      refreshTrades()
+    })
+
+    return () => {
+      unsubscribeHistory()
+      unsubscribeCreated()
+    }
   }, [refreshTrades])
 
   const onGridReady = useCallback((event: GridReadyEvent<Trade>) => {

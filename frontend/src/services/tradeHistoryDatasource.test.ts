@@ -3,8 +3,8 @@ import type { IGetRowsParams } from 'ag-grid-community'
 import { TradeHistoryDatasource } from './tradeHistoryDatasource'
 import type { Trade } from '../types/trade'
 
-function fakeSocket() {
-  return { send: vi.fn() } as unknown as WebSocket
+function fakeSend() {
+  return vi.fn()
 }
 
 function fakeParams(overrides: Partial<IGetRowsParams> = {}): IGetRowsParams {
@@ -24,19 +24,18 @@ function fakeTrade(id: string): Trade {
   return { id, symbol: 'EUR/USD', side: 'BUY', price: 1.085, quantity: 1_000_000, timestamp: '2026-08-21T00:00:00Z' }
 }
 
-function sentMessage(socket: WebSocket, callIndex = 0) {
-  const send = socket.send as ReturnType<typeof vi.fn>
-  return JSON.parse(send.mock.calls[callIndex][0] as string)
+function sentMessage(sendFn: ReturnType<typeof fakeSend>, callIndex = 0) {
+  return sendFn.mock.calls[callIndex][0]
 }
 
 describe('TradeHistoryDatasource', () => {
   it('sends a GET_TRADE_HISTORY request shaped from the getRows params', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(fakeParams({ startRow: 0, endRow: 100 }))
 
-    const message = sentMessage(socket)
+    const message = sentMessage(sendFn)
     expect(message.type).toBe('GET_TRADE_HISTORY')
     expect(typeof message.correlationId).toBe('string')
     expect(message.correlationId.length).toBeGreaterThan(0)
@@ -44,17 +43,17 @@ describe('TradeHistoryDatasource', () => {
   })
 
   it('maps a single sort model entry to a TradeSort', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(fakeParams({ sortModel: [{ colId: 'symbol', sort: 'desc' }] }))
 
-    expect(sentMessage(socket).payload.sort).toEqual({ column: 'symbol', descending: true })
+    expect(sentMessage(sendFn).payload.sort).toEqual({ column: 'symbol', descending: true })
   })
 
   it('maps a text and a number filter model to TradeFilters', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(
       fakeParams({
@@ -65,15 +64,15 @@ describe('TradeHistoryDatasource', () => {
       }),
     )
 
-    expect(sentMessage(socket).payload.filters).toEqual([
+    expect(sentMessage(sendFn).payload.filters).toEqual([
       { column: 'symbol', type: 'contains', value: 'EUR', valueTo: null },
       { column: 'quantity', type: 'greaterThan', value: '100000', valueTo: null },
     ])
   })
 
   it('maps a day-only "equals" date filter to an inRange TradeFilter covering the whole local day', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(
       fakeParams({
@@ -81,7 +80,7 @@ describe('TradeHistoryDatasource', () => {
       }),
     )
 
-    const [filter] = sentMessage(socket).payload.filters
+    const [filter] = sentMessage(sendFn).payload.filters
     expect(filter.column).toBe('timestamp')
     expect(filter.type).toBe('inRange')
     expect(new Date(filter.value)).toEqual(new Date(2026, 7, 21, 0, 0, 0))
@@ -89,8 +88,8 @@ describe('TradeHistoryDatasource', () => {
   })
 
   it('maps a "lessThan" date filter to a lessThan TradeFilter at the start of that day', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(
       fakeParams({
@@ -98,15 +97,15 @@ describe('TradeHistoryDatasource', () => {
       }),
     )
 
-    const [filter] = sentMessage(socket).payload.filters
+    const [filter] = sentMessage(sendFn).payload.filters
     expect(filter.type).toBe('lessThan')
     expect(filter.valueTo).toBeNull()
     expect(new Date(filter.value)).toEqual(new Date(2026, 7, 21, 0, 0, 0))
   })
 
   it('maps a "greaterThan" date filter to a greaterThan TradeFilter at the start of the next day', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(
       fakeParams({
@@ -114,15 +113,15 @@ describe('TradeHistoryDatasource', () => {
       }),
     )
 
-    const [filter] = sentMessage(socket).payload.filters
+    const [filter] = sentMessage(sendFn).payload.filters
     expect(filter.type).toBe('greaterThan')
     expect(filter.valueTo).toBeNull()
     expect(new Date(filter.value)).toEqual(new Date(2026, 7, 22, 0, 0, 0, -1))
   })
 
   it('maps an "inRange" date filter spanning dateFrom through the end of dateTo', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(
       fakeParams({
@@ -132,19 +131,19 @@ describe('TradeHistoryDatasource', () => {
       }),
     )
 
-    const [filter] = sentMessage(socket).payload.filters
+    const [filter] = sentMessage(sendFn).payload.filters
     expect(filter.type).toBe('inRange')
     expect(new Date(filter.value)).toEqual(new Date(2026, 7, 21, 0, 0, 0))
     expect(new Date(filter.valueTo)).toEqual(new Date(2026, 7, 24, 0, 0, 0, -1))
   })
 
   it('resolves successCallback with the reply matching its correlationId', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
     const params = fakeParams({ startRow: 0, endRow: 100 })
 
     datasource.getRows(params)
-    const { correlationId } = sentMessage(socket)
+    const { correlationId } = sentMessage(sendFn)
     const rows = [fakeTrade('trade-1')]
 
     datasource.handleReply(correlationId, { rows, nextCursor: null, hasMore: false })
@@ -153,12 +152,12 @@ describe('TradeHistoryDatasource', () => {
   })
 
   it('reports an open-ended block via successCallback when hasMore is true', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
     const params = fakeParams({ startRow: 0, endRow: 100 })
 
     datasource.getRows(params)
-    const { correlationId } = sentMessage(socket)
+    const { correlationId } = sentMessage(sendFn)
 
     datasource.handleReply(correlationId, { rows: [fakeTrade('trade-1')], nextCursor: 'cursor-1', hasMore: true })
 
@@ -166,8 +165,8 @@ describe('TradeHistoryDatasource', () => {
   })
 
   it('ignores a reply for a correlationId it never issued', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
     const params = fakeParams()
     datasource.getRows(params)
 
@@ -176,15 +175,15 @@ describe('TradeHistoryDatasource', () => {
   })
 
   it('resolves two overlapping getRows() calls to their own caller via distinct correlationIds', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
     const paramsA = fakeParams({ startRow: 0, endRow: 100 })
     const paramsB = fakeParams({ startRow: 100, endRow: 200 })
 
     datasource.getRows(paramsA)
     datasource.getRows(paramsB)
-    const correlationIdA = sentMessage(socket, 0).correlationId
-    const correlationIdB = sentMessage(socket, 1).correlationId
+    const correlationIdA = sentMessage(sendFn, 0).correlationId
+    const correlationIdB = sentMessage(sendFn, 1).correlationId
     expect(correlationIdA).not.toBe(correlationIdB)
 
     const rowsB = [fakeTrade('trade-b')]
@@ -198,8 +197,8 @@ describe('TradeHistoryDatasource', () => {
 
   it('fails the request if no reply arrives before the timeout', () => {
     vi.useFakeTimers()
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
     const params = fakeParams()
 
     datasource.getRows(params)
@@ -210,11 +209,11 @@ describe('TradeHistoryDatasource', () => {
   })
 
   it('restarts from cursor=null when asked for a block whose preceding cursor was never observed', () => {
-    const socket = fakeSocket()
-    const datasource = new TradeHistoryDatasource(socket)
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
 
     datasource.getRows(fakeParams({ startRow: 500, endRow: 600 }))
 
-    expect(sentMessage(socket).payload.cursor).toBeNull()
+    expect(sentMessage(sendFn).payload.cursor).toBeNull()
   })
 })
