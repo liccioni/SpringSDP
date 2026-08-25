@@ -110,6 +110,13 @@ export function send(message: { type: string; payload: unknown; correlationId?: 
 // fresh connection against that test's own mock server. Never called from
 // production code - the shared connection otherwise lives for the app's
 // whole lifetime.
+//
+// Also clears handlersByType: React Testing Library's cleanup() unmounts
+// each test's rendered tree, but that only runs *after* the test completes,
+// while resetForTests() runs in the *next* test's beforeEach - so any
+// handler a still-mounted component subscribed with is otherwise still
+// registered when the next test's connection starts dispatching messages,
+// letting a previous test's component react to a later test's traffic.
 export function resetForTests(): void {
   connectionGeneration += 1
   if (retryTimer !== null) {
@@ -120,6 +127,7 @@ export function resetForTests(): void {
   socket = null
   sendQueue.length = 0
   connectAttempt = 0
+  handlersByType.clear()
 }
 
 function readCookie(name: string): string | null {
