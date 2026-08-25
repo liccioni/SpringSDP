@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react'
+import { useEffect, useMemo, useState, type ChangeEvent } from 'react'
 import { AgGridReact } from 'ag-grid-react'
 import {
   AllCommunityModule,
@@ -7,8 +7,9 @@ import {
   type GetRowIdParams,
   type ICellRendererParams,
 } from 'ag-grid-community'
-import { connect } from '../services/socket'
+import { send, subscribe } from '../services/socket'
 import { tradingTheme } from '../theme/tradingTheme'
+import type { Envelope } from '../types/envelope'
 import type { PendingTrade } from '../types/pendingTrade'
 import type { PriceTick } from '../types/priceTick'
 import type { Side, TradeRequest } from '../types/tradeRequest'
@@ -30,47 +31,49 @@ function PriceGrid() {
   const [prices, setPrices] = useState<Record<string, PriceTick>>({})
   const [quantity, setQuantity] = useState<number>(DEFAULT_QUANTITY)
   const [pendingTrade, setPendingTrade] = useState<PendingTrade | null>(null)
-  const socketRef = useRef<WebSocket | null>(null)
 
   useEffect(() => {
-    const socket = connect(
-      (envelope) => {
-        if (envelope.type === 'PRICE_TICK') {
-          const tick = envelope.payload as PriceTick
-          setPrices((current) => ({ ...current, [tick.symbol]: tick }))
-        } else if (envelope.type === 'TRADE_PENDING') {
-          setPendingTrade(envelope.payload as PendingTrade)
-        } else if (envelope.type === 'TRADE_CREATED' || envelope.type === 'TRADE_CANCELLED') {
-          const resolved = envelope.payload as { id: string }
-          setPendingTrade((current) => (current?.id === resolved.id ? null : current))
-        }
-      },
-      () => {
-        for (const symbol of KNOWN_SYMBOLS) {
-          socket.send(JSON.stringify({ type: 'SUBSCRIBE', payload: { symbol } }))
-        }
-      },
-    )
-    socketRef.current = socket
+    const unsubscribePriceTick = subscribe('PRICE_TICK', (envelope) => {
+      const tick = envelope.payload as PriceTick
+      setPrices((current) => ({ ...current, [tick.symbol]: tick }))
+    })
+    const unsubscribeTradePending = subscribe('TRADE_PENDING', (envelope) => {
+      setPendingTrade(envelope.payload as PendingTrade)
+    })
+    const handleTradeResolved = (envelope: Envelope) => {
+      const resolved = envelope.payload as { id: string }
+      setPendingTrade((current) => (current?.id === resolved.id ? null : current))
+    }
+    const unsubscribeTradeCreated = subscribe('TRADE_CREATED', handleTradeResolved)
+    const unsubscribeTradeCancelled = subscribe('TRADE_CANCELLED', handleTradeResolved)
 
-    return () => socket.close()
+    for (const symbol of KNOWN_SYMBOLS) {
+      send({ type: 'SUBSCRIBE', payload: { symbol } })
+    }
+
+    return () => {
+      unsubscribePriceTick()
+      unsubscribeTradePending()
+      unsubscribeTradeCreated()
+      unsubscribeTradeCancelled()
+    }
   }, [])
 
   const rowData = useMemo(() => Object.values(prices), [prices])
 
   function sendTrade(tick: PriceTick, side: Side, price: number) {
     const request: TradeRequest = { symbol: tick.symbol, side, price, quantity }
-    socketRef.current?.send(JSON.stringify({ type: 'CREATE_TRADE', payload: request }))
+    send({ type: 'CREATE_TRADE', payload: request })
   }
 
   function confirmPendingTrade() {
     if (!pendingTrade) return
-    socketRef.current?.send(JSON.stringify({ type: 'CONFIRM_TRADE', payload: { id: pendingTrade.id } }))
+    send({ type: 'CONFIRM_TRADE', payload: { id: pendingTrade.id } })
   }
 
   function cancelPendingTrade() {
     if (!pendingTrade) return
-    socketRef.current?.send(JSON.stringify({ type: 'CANCEL_TRADE', payload: { id: pendingTrade.id } }))
+    send({ type: 'CANCEL_TRADE', payload: { id: pendingTrade.id } })
   }
 
   function handleQuantityChanged(event: ChangeEvent<HTMLInputElement>) {

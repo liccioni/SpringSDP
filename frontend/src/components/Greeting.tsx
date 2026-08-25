@@ -1,17 +1,11 @@
 import { useEffect, useState } from 'react'
-import { connect } from '../services/socket'
+import { subscribe } from '../services/socket'
 
 function Greeting() {
   const [message, setMessage] = useState<string | null>(null)
 
   useEffect(() => {
-    const socket = connect((envelope) => {
-      if (envelope.type === 'HELLO') {
-        setMessage(String(envelope.payload))
-      }
-    })
-
-    return () => socket.close()
+    return subscribe('HELLO', (envelope) => setMessage(String(envelope.payload)))
   }, [])
 
   return (

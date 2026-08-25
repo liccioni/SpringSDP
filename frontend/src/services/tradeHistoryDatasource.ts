@@ -104,16 +104,35 @@ function toFilters(filterModel: IGetRowsParams['filterModel']): TradeFilter[] | 
 // order. A request for a startRow whose cursor was never recorded (a hard
 // scrollbar-drag jump) restarts from cursor=null rather than reconstructing
 // an arbitrary offset - an accepted v1 limitation for a live trade blotter.
+type SendFn = (message: { type: string; payload: unknown; correlationId?: string }) => void
+
 export class TradeHistoryDatasource implements IDatasource {
-  private readonly socket: WebSocket
+  private readonly send: SendFn
   private readonly pendingByCorrelationId = new Map<string, PendingRequest>()
   private readonly cursorByBlockStart = new Map<number, string | null>([[0, null]])
+  private destroyed = false
 
-  constructor(socket: WebSocket) {
-    this.socket = socket
+  constructor(send: SendFn) {
+    this.send = send
+  }
+
+  // Called from TradeBlotter's cleanup on unmount (issue #128's single-shared-
+  // connection change made this necessary): AG Grid's own internal row-model
+  // machinery can still invoke a stale datasource's getRows() after its owning
+  // component has unmounted (a genuine, if rare, ag-grid/jsdom timing gap).
+  // With one shared connection for the whole app, that stray call now finds a
+  // live socket to actually send over - previously, each component's own
+  // dedicated WebSocket was already closed by the time this could happen, so
+  // the stray send silently went nowhere. Guarding here stops a torn-down
+  // blotter from placing background requests indefinitely.
+  destroy(): void {
+    this.destroyed = true
   }
 
   getRows(params: IGetRowsParams): void {
+    if (this.destroyed) {
+      return
+    }
     let cursor = this.cursorByBlockStart.get(params.startRow)
     if (cursor === undefined) {
       this.cursorByBlockStart.clear()
@@ -136,7 +155,7 @@ export class TradeHistoryDatasource implements IDatasource {
       timeout: setTimeout(() => this.fail(correlationId), REQUEST_TIMEOUT_MS),
     })
 
-    this.socket.send(JSON.stringify({ type: 'GET_TRADE_HISTORY', payload: query, correlationId }))
+    this.send({ type: 'GET_TRADE_HISTORY', payload: query, correlationId })
   }
 
   handleReply(correlationId: string, page: TradeHistoryPage): void {

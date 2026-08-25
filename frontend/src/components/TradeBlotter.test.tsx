@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { render, screen, waitFor } from '@testing-library/react'
 import { Server, WebSocket as MockWebSocket } from 'mock-socket'
 import TradeBlotter from './TradeBlotter'
+import { resetForTests } from '../services/socket'
 import type { Trade } from '../types/trade'
 import type { TradeHistoryPage } from '../types/tradeHistory'
 
@@ -52,6 +53,7 @@ describe('TradeBlotter', () => {
   let mockServer: Server
 
   beforeEach(() => {
+    resetForTests()
     vi.stubGlobal('WebSocket', MockWebSocket)
     mockServer = new Server(WS_URL)
     // jsdom never runs real layout, so the Infinite Row Model's viewport-size
