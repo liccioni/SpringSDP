@@ -126,6 +126,7 @@ function TradeBlotter() {
     return () => {
       unsubscribeHistory()
       unsubscribeCreated()
+      datasource.destroy()
     }
   }, [refreshTrades])
 

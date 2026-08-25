@@ -216,4 +216,14 @@ describe('TradeHistoryDatasource', () => {
 
     expect(sentMessage(sendFn).payload.cursor).toBeNull()
   })
+
+  it('ignores a getRows call made after destroy()', () => {
+    const sendFn = fakeSend()
+    const datasource = new TradeHistoryDatasource(sendFn)
+
+    datasource.destroy()
+    datasource.getRows(fakeParams())
+
+    expect(sendFn).not.toHaveBeenCalled()
+  })
 })

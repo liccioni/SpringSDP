@@ -110,12 +110,29 @@ export class TradeHistoryDatasource implements IDatasource {
   private readonly send: SendFn
   private readonly pendingByCorrelationId = new Map<string, PendingRequest>()
   private readonly cursorByBlockStart = new Map<number, string | null>([[0, null]])
+  private destroyed = false
 
   constructor(send: SendFn) {
     this.send = send
   }
 
+  // Called from TradeBlotter's cleanup on unmount (issue #128's single-shared-
+  // connection change made this necessary): AG Grid's own internal row-model
+  // machinery can still invoke a stale datasource's getRows() after its owning
+  // component has unmounted (a genuine, if rare, ag-grid/jsdom timing gap).
+  // With one shared connection for the whole app, that stray call now finds a
+  // live socket to actually send over - previously, each component's own
+  // dedicated WebSocket was already closed by the time this could happen, so
+  // the stray send silently went nowhere. Guarding here stops a torn-down
+  // blotter from placing background requests indefinitely.
+  destroy(): void {
+    this.destroyed = true
+  }
+
   getRows(params: IGetRowsParams): void {
+    if (this.destroyed) {
+      return
+    }
     let cursor = this.cursorByBlockStart.get(params.startRow)
     if (cursor === undefined) {
       this.cursorByBlockStart.clear()
