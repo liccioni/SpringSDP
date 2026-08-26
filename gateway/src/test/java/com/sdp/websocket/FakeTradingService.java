@@ -92,7 +92,7 @@ class FakeTradingService {
         TradeRequest request = objectMapper.convertValue(command.payload(), TradeRequest.class);
         String rejectionReason = validate(request);
         if (rejectionReason != null) {
-            publish("trade-rejected", new TradeRejected(request.symbol(), request.side(), request.price(), request.quantity(), rejectionReason));
+            publish("trade-rejected", new TradeRejected(request.symbol(), request.side(), request.price(), request.quantity(), rejectionReason, command.submittedBy()));
             reply(command, "TRADE_REJECTED", null);
             return;
         }
@@ -107,7 +107,7 @@ class FakeTradingService {
         if (pending == null) {
             return;
         }
-        Trade trade = new Trade(pending.id(), pending.symbol(), pending.side(), pending.price(), pending.quantity(), Instant.now());
+        Trade trade = new Trade(pending.id(), pending.symbol(), pending.side(), pending.price(), pending.quantity(), Instant.now(), command.submittedBy());
         history.add(trade);
         publish("trade-created", trade);
     }

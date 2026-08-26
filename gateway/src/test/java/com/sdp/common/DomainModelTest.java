@@ -27,7 +27,7 @@ class DomainModelTest {
         Instant now = Instant.parse("2026-08-05T12:00:00Z");
         BigDecimal price = new BigDecimal("1.0851");
         BigDecimal quantity = new BigDecimal("1000000");
-        Trade trade = new Trade("trade-1", "EUR/USD", Side.BUY, price, quantity, now);
+        Trade trade = new Trade("trade-1", "EUR/USD", Side.BUY, price, quantity, now, "trader1");
 
         assertThat(trade.id()).isEqualTo("trade-1");
         assertThat(trade.symbol()).isEqualTo("EUR/USD");
@@ -35,5 +35,6 @@ class DomainModelTest {
         assertThat(trade.price()).isEqualTo(price);
         assertThat(trade.quantity()).isEqualTo(quantity);
         assertThat(trade.timestamp()).isEqualTo(now);
+        assertThat(trade.submittedBy()).isEqualTo("trader1");
     }
 }

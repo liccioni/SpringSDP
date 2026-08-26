@@ -1,6 +1,8 @@
 package com.sdp.websocket;
 
 import com.sdp.contracts.TradeHistoryQuery;
+import com.sdp.eventbus.Attributable;
+import com.sdp.eventbus.DomainEvent;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
 import com.sdp.session.Session;
@@ -44,7 +46,9 @@ import reactor.core.publisher.Sinks;
  * Each connection starts subscribed to no symbols, so PRICE_TICK delivery is
  * scoped to that connection's own subscriptions via SUBSCRIBE/UNSUBSCRIBE
  * (see SymbolSubscription for the visibility rule). TRADE_CREATED and
- * TRADE_REJECTED stay broadcast to every session, per docs/protocol.md.
+ * TRADE_REJECTED are scoped the same way, but by submitting username rather
+ * than a symbol (see isVisibleTo/Attributable, issue #152, ADR 0028) -
+ * delivered only to the session that submitted the trade, not broadcast.
  * TRADE_PENDING, TRADE_CANCELLED, and TRADE_HISTORY are different: each is a
  * targeted reply to that connection's own request (CREATE_TRADE,
  * CANCEL_TRADE, GET_TRADE_HISTORY respectively), sent only to the requesting
@@ -94,6 +98,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		Flux<WebSocketMessage> events = eventBus.events()
 				.filter(session.subscriptions()::isVisible)
+				.filter(event -> isVisibleTo(event, session))
 				.map(event -> new Envelope(event.eventType(), event))
 				.concatMap(envelope -> toMessage(webSocketSession, envelope));
 
@@ -109,6 +114,15 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		return webSocketSession.send(outbound).and(inbound)
 				.doFinally(signalType -> cancelPendingTrades(session));
+	}
+
+	// Mirrors SymbolSubscription's PriceTick-visibility rule (see its own
+	// isVisible) for Attributable events (TRADE_CREATED/TRADE_REJECTED,
+	// issue #152, ADR 0028): an event that belongs to a specific submitter
+	// is only visible to that submitter's own session, by username - every
+	// other event stays broadcast, unchanged.
+	private boolean isVisibleTo(DomainEvent event, Session session) {
+		return !(event instanceof Attributable attributable) || session.username().equals(attributable.submittedBy());
 	}
 
 	// The connection's own PendingTrades (issue #79) - not gated on the

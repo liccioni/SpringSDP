@@ -131,7 +131,7 @@ class TradeServiceTest {
         assertThat(sent.payload()).isEqualTo(query);
 
         com.sdp.contracts.Trade older = new com.sdp.contracts.Trade(
-                "1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.08"), new BigDecimal("100"), Instant.parse("2026-01-01T00:00:00Z"));
+                "1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.08"), new BigDecimal("100"), Instant.parse("2026-01-01T00:00:00Z"), "trader1");
         com.sdp.contracts.TradeHistoryPage page = new com.sdp.contracts.TradeHistoryPage(List.of(older), null, false);
         service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_HISTORY", page));
 
@@ -157,30 +157,32 @@ class TradeServiceTest {
     }
 
     @Test
-    void tradeCreatedConsumerRelaysOntoTheEventBus() {
+    void tradeCreatedConsumerRelaysOntoTheEventBusWithSubmitterIdentity() {
         com.sdp.contracts.Trade trade = new com.sdp.contracts.Trade(
-                "1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"), Instant.now());
+                "1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"), Instant.now(), "trader1");
 
         StepVerifier.create(eventBus.events())
                 .then(() -> service.tradeCreatedConsumer().accept(trade))
                 .assertNext(event -> {
                     assertThat(event).isInstanceOf(Trade.class);
                     assertThat(((Trade) event).symbol()).isEqualTo("EUR/USD");
+                    assertThat(((Trade) event).submittedBy()).isEqualTo("trader1");
                 })
                 .thenCancel()
                 .verify();
     }
 
     @Test
-    void tradeRejectedConsumerRelaysOntoTheEventBus() {
+    void tradeRejectedConsumerRelaysOntoTheEventBusWithSubmitterIdentity() {
         com.sdp.contracts.TradeRejected rejected = new com.sdp.contracts.TradeRejected(
-                "EUR/USD", com.sdp.contracts.Side.SELL, new BigDecimal("1.0850"), new BigDecimal("0"), "quantity must be greater than zero");
+                "EUR/USD", com.sdp.contracts.Side.SELL, new BigDecimal("1.0850"), new BigDecimal("0"), "quantity must be greater than zero", "trader1");
 
         StepVerifier.create(eventBus.events())
                 .then(() -> service.tradeRejectedConsumer().accept(rejected))
                 .assertNext(event -> {
                     assertThat(event).isInstanceOf(TradeRejected.class);
                     assertThat(((TradeRejected) event).reason()).isEqualTo("quantity must be greater than zero");
+                    assertThat(((TradeRejected) event).submittedBy()).isEqualTo("trader1");
                 })
                 .thenCancel()
                 .verify();

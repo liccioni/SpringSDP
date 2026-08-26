@@ -1,5 +1,6 @@
 package com.sdp.common;
 
+import com.sdp.eventbus.Attributable;
 import com.sdp.eventbus.DomainEvent;
 
 import java.math.BigDecimal;
@@ -12,8 +13,8 @@ import java.time.Instant;
 // this service's own TradeRepository was removed in #92, and stayed
 // unnoticed until #94 tried to compile this class with no R2DBC dependency
 // on the classpath at all.
-public record Trade(String id, String symbol, Side side, BigDecimal price, BigDecimal quantity, Instant timestamp)
-        implements DomainEvent {
+public record Trade(String id, String symbol, Side side, BigDecimal price, BigDecimal quantity, Instant timestamp, String submittedBy)
+        implements DomainEvent, Attributable {
 
     @Override
     public String eventType() {

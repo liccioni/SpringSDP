@@ -148,8 +148,12 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 	}
 
 	private HttpHeaders sessionCookieHeader() {
+		return sessionCookieHeader(sessionCookie);
+	}
+
+	private HttpHeaders sessionCookieHeader(String cookie) {
 		HttpHeaders headers = new HttpHeaders();
-		headers.add("Cookie", "SESSION=" + sessionCookie);
+		headers.add("Cookie", "SESSION=" + cookie);
 		return headers;
 	}
 
@@ -419,77 +423,84 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 	}
 
 	// The next two tests prove the #91 consumer path (Backend-Trading
-	// Service -> RabbitMQ fanout -> monolith -> EventBus -> every connected
-	// session), using two connections rather than one: TRADE_CREATED/
-	// TRADE_REJECTED are broadcast to everyone (docs/protocol.md), unlike
-	// PRICE_TICK's subscription filtering, so this is the meaningful proof
-	// for this path specifically. No real CREATE_TRADE trigger exists yet
-	// (that's #92) - the Backend-Trading Service's production side is
-	// simulated the same way #90 simulated the Market Data Service's.
+	// Service -> RabbitMQ fanout -> monolith -> EventBus -> submitting
+	// session only), using two connections under two different identities:
+	// TRADE_CREATED/TRADE_REJECTED are scoped to the submitting session by
+	// username (issue #152, ADR 0028), unlike the pre-#152 broadcast this
+	// replaced - so this is the meaningful proof for this path
+	// specifically. No real CREATE_TRADE trigger exists yet (that's #92) -
+	// the Backend-Trading Service's production side is simulated the same
+	// way #90 simulated the Market Data Service's.
 	@Test
-	void tradeCreatedFromTheBackendTradingServiceReachesEveryConnectedSession() throws Exception {
+	void tradeCreatedFromTheBackendTradingServiceReachesOnlyTheSubmittingSession() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
-		AtomicReference<String> receivedByFirst = new AtomicReference<>();
-		AtomicReference<String> receivedBySecond = new AtomicReference<>();
+		String otherCookie = authenticatedSessionId("trader2");
+		AtomicReference<String> receivedBySubmitter = new AtomicReference<>();
+		AtomicReference<Boolean> receivedByOther = new AtomicReference<>(false);
 		com.sdp.contracts.Trade published = new com.sdp.contracts.Trade(
 				java.util.UUID.randomUUID().toString(), "USD/JPY", com.sdp.contracts.Side.BUY,
-				new BigDecimal("149.60"), new BigDecimal("500000"), Instant.now());
+				new BigDecimal("149.60"), new BigDecimal("500000"), Instant.now(), "trader1");
 
-		Mono<Void> first = client.execute(wsUri(), sessionCookieHeader(),
+		Mono<Void> submitter = client.execute(wsUri(), sessionCookieHeader(),
 				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
 						.filter(text -> text.contains("TRADE_CREATED"))
-						.next().doOnNext(receivedByFirst::set).then());
-		Mono<Void> second = client.execute(wsUri(), sessionCookieHeader(),
+						.next().doOnNext(receivedBySubmitter::set).then());
+		Mono<Void> other = client.execute(wsUri(), sessionCookieHeader(otherCookie),
 				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
 						.filter(text -> text.contains("TRADE_CREATED"))
-						.next().doOnNext(receivedBySecond::set).then());
+						.next().doOnNext(text -> receivedByOther.set(true))
+						.timeout(Duration.ofSeconds(2))
+						.onErrorResume(java.util.concurrent.TimeoutException.class, error -> Mono.empty())
+						.then());
 		Mono<Void> publish = Mono.fromRunnable(() -> publishToFanoutExchange("trade-created", published))
 				.delaySubscription(Duration.ofMillis(200))
 				.then();
 
-		Mono.when(first, second, publish).block(Duration.ofSeconds(5));
+		Mono.when(submitter, other, publish).block(Duration.ofSeconds(5));
 
-		for (AtomicReference<String> received : List.of(receivedByFirst, receivedBySecond)) {
-			Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
-			assertThat(envelope.type()).isEqualTo("TRADE_CREATED");
-			Trade trade = objectMapper.convertValue(envelope.payload(), Trade.class);
-			assertThat(trade.id()).isEqualTo(published.id());
-			assertThat(trade.symbol()).isEqualTo("USD/JPY");
-			assertThat(trade.side()).isEqualTo(Side.BUY);
-			assertThat(trade.price()).isEqualByComparingTo("149.60");
-		}
+		Envelope envelope = objectMapper.readValue(receivedBySubmitter.get(), Envelope.class);
+		assertThat(envelope.type()).isEqualTo("TRADE_CREATED");
+		Trade trade = objectMapper.convertValue(envelope.payload(), Trade.class);
+		assertThat(trade.id()).isEqualTo(published.id());
+		assertThat(trade.symbol()).isEqualTo("USD/JPY");
+		assertThat(trade.side()).isEqualTo(Side.BUY);
+		assertThat(trade.price()).isEqualByComparingTo("149.60");
+		assertThat(receivedByOther.get()).isFalse();
 	}
 
 	@Test
-	void tradeRejectedFromTheBackendTradingServiceReachesEveryConnectedSession() throws Exception {
+	void tradeRejectedFromTheBackendTradingServiceReachesOnlyTheSubmittingSession() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
-		AtomicReference<String> receivedByFirst = new AtomicReference<>();
-		AtomicReference<String> receivedBySecond = new AtomicReference<>();
+		String otherCookie = authenticatedSessionId("trader2");
+		AtomicReference<String> receivedBySubmitter = new AtomicReference<>();
+		AtomicReference<Boolean> receivedByOther = new AtomicReference<>(false);
 		com.sdp.contracts.TradeRejected published = new com.sdp.contracts.TradeRejected(
 				"USD/JPY", com.sdp.contracts.Side.SELL, new BigDecimal("149.60"), new BigDecimal("0"),
-				"quantity must be greater than zero");
+				"quantity must be greater than zero", "trader1");
 
-		Mono<Void> first = client.execute(wsUri(), sessionCookieHeader(),
+		Mono<Void> submitter = client.execute(wsUri(), sessionCookieHeader(),
 				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
 						.filter(text -> text.contains("TRADE_REJECTED"))
-						.next().doOnNext(receivedByFirst::set).then());
-		Mono<Void> second = client.execute(wsUri(), sessionCookieHeader(),
+						.next().doOnNext(receivedBySubmitter::set).then());
+		Mono<Void> other = client.execute(wsUri(), sessionCookieHeader(otherCookie),
 				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
 						.filter(text -> text.contains("TRADE_REJECTED"))
-						.next().doOnNext(receivedBySecond::set).then());
+						.next().doOnNext(text -> receivedByOther.set(true))
+						.timeout(Duration.ofSeconds(2))
+						.onErrorResume(java.util.concurrent.TimeoutException.class, error -> Mono.empty())
+						.then());
 		Mono<Void> publish = Mono.fromRunnable(() -> publishToFanoutExchange("trade-rejected", published))
 				.delaySubscription(Duration.ofMillis(200))
 				.then();
 
-		Mono.when(first, second, publish).block(Duration.ofSeconds(5));
+		Mono.when(submitter, other, publish).block(Duration.ofSeconds(5));
 
-		for (AtomicReference<String> received : List.of(receivedByFirst, receivedBySecond)) {
-			Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
-			assertThat(envelope.type()).isEqualTo("TRADE_REJECTED");
-			TradeRejected rejected = objectMapper.convertValue(envelope.payload(), TradeRejected.class);
-			assertThat(rejected.symbol()).isEqualTo("USD/JPY");
-			assertThat(rejected.reason()).isEqualTo("quantity must be greater than zero");
-		}
+		Envelope envelope = objectMapper.readValue(receivedBySubmitter.get(), Envelope.class);
+		assertThat(envelope.type()).isEqualTo("TRADE_REJECTED");
+		TradeRejected rejected = objectMapper.convertValue(envelope.payload(), TradeRejected.class);
+		assertThat(rejected.symbol()).isEqualTo("USD/JPY");
+		assertThat(rejected.reason()).isEqualTo("quantity must be greater than zero");
+		assertThat(receivedByOther.get()).isFalse();
 	}
 
 	@Test

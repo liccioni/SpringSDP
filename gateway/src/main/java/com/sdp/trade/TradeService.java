@@ -33,11 +33,11 @@ import tools.jackson.databind.ObjectMapper;
  * (its own call sites are completely unchanged: same method signatures,
  * same semantics).
  *
- * Also the monolith's temporary consumer of TRADE_CREATED/TRADE_REJECTED
- * broadcasts from the Backend/Trading Service's RabbitMQ fanout exchanges
- * (issue #91) - relays each onto the same EventBus, so
- * SdpWebSocketHandler's existing broadcast-to-all-sessions delivery stays
- * unchanged.
+ * Also the monolith's consumer of TRADE_CREATED/TRADE_REJECTED events from
+ * the Backend/Trading Service's RabbitMQ fanout exchanges (issue #91) -
+ * relays each onto the same EventBus, carrying {@code submittedBy} through
+ * so SdpWebSocketHandler can deliver it to the submitting session only
+ * (issue #152, ADR 0028) rather than broadcasting to every connection.
  */
 @Service
 public class TradeService {
@@ -93,13 +93,15 @@ public class TradeService {
     @Bean
     public Consumer<com.sdp.contracts.Trade> tradeCreatedConsumer() {
         return trade -> eventBus.publish(new Trade(
-                trade.id(), trade.symbol(), Side.valueOf(trade.side().name()), trade.price(), trade.quantity(), trade.timestamp()));
+                trade.id(), trade.symbol(), Side.valueOf(trade.side().name()), trade.price(), trade.quantity(), trade.timestamp(),
+                trade.submittedBy()));
     }
 
     @Bean
     public Consumer<com.sdp.contracts.TradeRejected> tradeRejectedConsumer() {
         return rejected -> eventBus.publish(new TradeRejected(
-                rejected.symbol(), Side.valueOf(rejected.side().name()), rejected.price(), rejected.quantity(), rejected.reason()));
+                rejected.symbol(), Side.valueOf(rejected.side().name()), rejected.price(), rejected.quantity(), rejected.reason(),
+                rejected.submittedBy()));
     }
 
     @Bean

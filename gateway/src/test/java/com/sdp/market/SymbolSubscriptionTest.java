@@ -37,7 +37,7 @@ class SymbolSubscriptionTest {
 
     @Test
     void alwaysShowsNonPriceTickEvents() {
-        TradeRejected rejection = new TradeRejected("EUR/USD", Side.BUY, BigDecimal.ONE, BigDecimal.ZERO, "quantity must be greater than zero");
+        TradeRejected rejection = new TradeRejected("EUR/USD", Side.BUY, BigDecimal.ONE, BigDecimal.ZERO, "quantity must be greater than zero", "trader1");
 
         assertThat(subscriptions.isVisible(rejection)).isTrue();
     }
