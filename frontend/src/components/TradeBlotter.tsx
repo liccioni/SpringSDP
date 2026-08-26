@@ -113,6 +113,12 @@ function TradeBlotter() {
     datasourceRef.current = datasource
     gridApiRef.current?.setGridOption('datasource', datasource)
 
+    // Opts this connection into the shared, filtered TRADE_CREATED broadcast
+    // (issue #152, ADR 0028) - other sessions' trades only reach this one
+    // because the blotter is open and subscribed, not because they're
+    // broadcast to every connection regardless of interest.
+    send({ type: 'SUBSCRIBE_BLOTTER', payload: null })
+
     const unsubscribeHistory = subscribe('TRADE_HISTORY', (envelope) => {
       if (envelope.correlationId) {
         datasource.handleReply(envelope.correlationId, envelope.payload as TradeHistoryPage)
@@ -124,6 +130,7 @@ function TradeBlotter() {
     })
 
     return () => {
+      send({ type: 'UNSUBSCRIBE_BLOTTER', payload: null })
       unsubscribeHistory()
       unsubscribeCreated()
       datasource.destroy()
