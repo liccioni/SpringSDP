@@ -147,6 +147,9 @@ public class TradeHistoryQueryService {
         return spec.map((row, metadata) -> toTrade(row)).all();
     }
 
+    // submittedBy is null here: the trades table doesn't persist submitter
+    // identity (deliberately out of scope for #152 - see ADR 0028), and
+    // history rows are already a targeted reply, never EventBus-filtered.
     private com.sdp.contracts.Trade toTrade(Row row) {
         return new com.sdp.contracts.Trade(
                 row.get("id", String.class),
@@ -154,7 +157,8 @@ public class TradeHistoryQueryService {
                 Side.valueOf(row.get("side", String.class)),
                 row.get("price", BigDecimal.class),
                 row.get("quantity", BigDecimal.class),
-                row.get("timestamp", Instant.class));
+                row.get("timestamp", Instant.class),
+                null);
     }
 
     private TradeHistoryPage toPage(List<com.sdp.contracts.Trade> rows, int pageSize, String sortColumn, boolean descending) {

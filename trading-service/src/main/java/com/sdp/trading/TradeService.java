@@ -36,8 +36,10 @@ import tools.jackson.databind.ObjectMapper;
  * which needs none - see below) echoes the request's correlationId on
  * "trade-responses" so the Gateway (today, the monolith - see ADR 0022)
  * can route it back to the specific connection that asked.
- * TRADE_CREATED/TRADE_REJECTED still broadcast via #91's fanout exchanges,
- * unrelated to any correlationId.
+ * TRADE_CREATED/TRADE_REJECTED still publish via #91's fanout exchanges,
+ * unrelated to any correlationId, but now carry {@code submittedBy} so the
+ * Gateway can deliver them to the submitting session only (issue #152,
+ * ADR 0028) instead of broadcasting to every connection.
  *
  * CONFIRM_TRADE gets no reply at all: the wire protocol never replies to
  * it either (docs/protocol.md - "an unknown or already-resolved id is a
@@ -134,13 +136,13 @@ public class TradeService {
     private Mono<Trade> execute(PendingTrade pending, String submittedBy) {
         Trade trade = new Trade(pending.id(), pending.symbol(), pending.side(), pending.price(), pending.quantity(), Instant.now());
         return tradeRepository.save(trade)
-                .doOnNext(saved -> streamBridge.send(TRADE_CREATED_BINDING, toContract(saved)))
+                .doOnNext(saved -> streamBridge.send(TRADE_CREATED_BINDING, toContract(saved, submittedBy)))
                 .flatMap(saved -> auditService.record(null, submittedBy, "TRADE_EXECUTED", describe(saved)).thenReturn(saved));
     }
 
     private Mono<Void> reject(TradeRequest request, String submittedBy, String reason) {
         streamBridge.send(TRADE_REJECTED_BINDING, new com.sdp.contracts.TradeRejected(
-                request.symbol(), request.side(), request.price(), request.quantity(), reason));
+                request.symbol(), request.side(), request.price(), request.quantity(), reason, submittedBy));
         return auditService.record(null, submittedBy, "TRADE_REJECTED", describe(request) + " - " + reason).then();
     }
 
@@ -166,8 +168,8 @@ public class TradeService {
         return Optional.empty();
     }
 
-    private com.sdp.contracts.Trade toContract(Trade trade) {
-        return new com.sdp.contracts.Trade(trade.id(), trade.symbol(), trade.side(), trade.price(), trade.quantity(), trade.timestamp());
+    private com.sdp.contracts.Trade toContract(Trade trade, String submittedBy) {
+        return new com.sdp.contracts.Trade(trade.id(), trade.symbol(), trade.side(), trade.price(), trade.quantity(), trade.timestamp(), submittedBy);
     }
 
     private String describe(PendingTrade pending) {

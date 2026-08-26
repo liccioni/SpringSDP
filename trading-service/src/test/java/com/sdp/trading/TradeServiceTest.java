@@ -98,7 +98,9 @@ class TradeServiceTest {
 
         TradeCommandResult reply = captureReply();
         assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
-        verify(streamBridge).send(eq("tradeRejected-out-0"), any(TradeRejected.class));
+        var rejectedCaptor = org.mockito.ArgumentCaptor.forClass(TradeRejected.class);
+        verify(streamBridge).send(eq("tradeRejected-out-0"), rejectedCaptor.capture());
+        assertThat(rejectedCaptor.getValue().submittedBy()).isEqualTo("trader1");
         verify(tradeRepository, never()).save(any());
     }
 
@@ -121,7 +123,9 @@ class TradeServiceTest {
         service.handle(confirm).block();
 
         verify(tradeRepository).save(any());
-        verify(streamBridge).send(eq("tradeCreated-out-0"), any(com.sdp.contracts.Trade.class));
+        var tradeCaptor = org.mockito.ArgumentCaptor.forClass(com.sdp.contracts.Trade.class);
+        verify(streamBridge).send(eq("tradeCreated-out-0"), tradeCaptor.capture());
+        assertThat(tradeCaptor.getValue().submittedBy()).isEqualTo("trader1");
         verify(auditService).record(eq(null), eq("trader1"), eq("TRADE_EXECUTED"), any());
         // No reply for CONFIRM_TRADE: only the two calls above should exist on tradeResponses-out-0.
         verify(streamBridge, org.mockito.Mockito.times(1)).send(eq("tradeResponses-out-0"), any());
@@ -164,7 +168,7 @@ class TradeServiceTest {
     @Test
     void getTradeHistoryRepliesWithThePageFromTheQueryService() {
         com.sdp.contracts.Trade trade = new com.sdp.contracts.Trade(
-                "t1", "EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("100000"), java.time.Instant.now());
+                "t1", "EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("100000"), java.time.Instant.now(), null);
         TradeHistoryPage page = new TradeHistoryPage(java.util.List.of(trade), null, false);
         TradeHistoryQuery query = new TradeHistoryQuery(50, null, null, null);
         when(tradeHistoryQueryService.query(any(TradeHistoryQuery.class))).thenReturn(Mono.just(page));
