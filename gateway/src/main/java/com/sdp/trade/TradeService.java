@@ -29,15 +29,22 @@ import tools.jackson.databind.ObjectMapper;
  * each reply back by correlationId. Validation, the PendingTrade lifecycle
  * (ADR 0018), and persistence all moved to trading-service's own
  * TradeService - this class now holds no trading-domain logic of its own,
- * only the request/reply plumbing SdpWebSocketHandler already depended on
- * (its own call sites are completely unchanged: same method signatures,
- * same semantics).
+ * only the request/reply plumbing SdpWebSocketHandler already depends on.
  *
- * Also the monolith's temporary consumer of TRADE_CREATED/TRADE_REJECTED
- * broadcasts from the Backend/Trading Service's RabbitMQ fanout exchanges
- * (issue #91) - relays each onto the same EventBus, so
- * SdpWebSocketHandler's existing broadcast-to-all-sessions delivery stays
- * unchanged.
+ * CONFIRM_TRADE (issue #152, ADR 0028) now awaits a correlated TRADE_CREATED
+ * reply too, same as requestTrade/cancelTrade - the submitting connection's
+ * own UI resolution depends on receiving it reliably, independent of any
+ * subscription state. requestTrade also now resolves a rejection outcome
+ * (previously silently discarded) so SdpWebSocketHandler can deliver
+ * TRADE_REJECTED to the submitter.
+ *
+ * Also still the monolith's consumer of the TRADE_CREATED broadcast from
+ * the Backend/Trading Service's "trade-created" fanout exchange (issue
+ * #91) - relays it onto the same EventBus, now visible only to sessions
+ * subscribed to the trade blotter (see BlotterSubscription, ADR 0028).
+ * TRADE_REJECTED no longer broadcasts at all (rejected trades are never
+ * persisted, so there's nothing for a blotter subscriber to see) - the
+ * former tradeRejectedConsumer relay is gone.
  */
 @Service
 public class TradeService {
@@ -56,21 +63,22 @@ public class TradeService {
         this.objectMapper = objectMapper;
     }
 
-    public Mono<PendingTrade> requestTrade(TradeRequest request, Session session) {
+    public Mono<TradeRequestOutcome> requestTrade(TradeRequest request, Session session) {
         return send("CREATE_TRADE", request, session.username(), session.roles())
-                .flatMap(result -> "TRADE_PENDING".equals(result.type())
-                        ? Mono.just(objectMapper.convertValue(result.payload(), PendingTrade.class))
-                        : Mono.empty());
+                .map(result -> switch (result.type()) {
+                    case "TRADE_PENDING" ->
+                            new TradeRequestOutcome.Pending(objectMapper.convertValue(result.payload(), PendingTrade.class));
+                    case "TRADE_REJECTED" -> new TradeRequestOutcome.Rejected(
+                            objectMapper.convertValue(result.payload(), com.sdp.contracts.TradeRejected.class));
+                    default -> throw new IllegalStateException("Unexpected CREATE_TRADE reply type: " + result.type());
+                });
     }
 
-    public Mono<Trade> confirmTrade(String id, Session session) {
-        // Fire-and-forget: the wire protocol never replies to CONFIRM_TRADE
-        // either (an unknown/already-resolved id is a silent no-op), and its
-        // only real effect - the TRADE_CREATED broadcast - already exists
-        // via #91's fanout exchange, independent of any correlationId.
-        streamBridge.send(TRADE_REQUESTS_BINDING, new com.sdp.contracts.TradeCommand(
-                UUID.randomUUID().toString(), session.username(), session.roles(), "CONFIRM_TRADE", new com.sdp.contracts.PendingTradeId(id)));
-        return Mono.empty();
+    public Mono<com.sdp.contracts.Trade> confirmTrade(String id, Session session) {
+        return send("CONFIRM_TRADE", new com.sdp.contracts.PendingTradeId(id), session.username(), session.roles())
+                .flatMap(result -> "TRADE_CREATED".equals(result.type())
+                        ? Mono.just(objectMapper.convertValue(result.payload(), com.sdp.contracts.Trade.class))
+                        : Mono.empty());
     }
 
     public Mono<PendingTrade> cancelTrade(String id, Session session) {
@@ -94,12 +102,6 @@ public class TradeService {
     public Consumer<com.sdp.contracts.Trade> tradeCreatedConsumer() {
         return trade -> eventBus.publish(new Trade(
                 trade.id(), trade.symbol(), Side.valueOf(trade.side().name()), trade.price(), trade.quantity(), trade.timestamp()));
-    }
-
-    @Bean
-    public Consumer<com.sdp.contracts.TradeRejected> tradeRejectedConsumer() {
-        return rejected -> eventBus.publish(new TradeRejected(
-                rejected.symbol(), Side.valueOf(rejected.side().name()), rejected.price(), rejected.quantity(), rejected.reason()));
     }
 
     @Bean

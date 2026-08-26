@@ -92,8 +92,8 @@ class FakeTradingService {
         TradeRequest request = objectMapper.convertValue(command.payload(), TradeRequest.class);
         String rejectionReason = validate(request);
         if (rejectionReason != null) {
-            publish("trade-rejected", new TradeRejected(request.symbol(), request.side(), request.price(), request.quantity(), rejectionReason));
-            reply(command, "TRADE_REJECTED", null);
+            TradeRejected rejected = new TradeRejected(request.symbol(), request.side(), request.price(), request.quantity(), rejectionReason);
+            reply(command, "TRADE_REJECTED", rejected);
             return;
         }
         PendingTrade pending = new PendingTrade(
@@ -109,7 +109,11 @@ class FakeTradingService {
         }
         Trade trade = new Trade(pending.id(), pending.symbol(), pending.side(), pending.price(), pending.quantity(), Instant.now());
         history.add(trade);
+        // Both channels, mirroring trading-service's own TradeService (ADR 0028):
+        // the fanout broadcast for blotter-subscribed sessions, and the
+        // correlated reply for the submitting connection's own acknowledgment.
         publish("trade-created", trade);
+        reply(command, "TRADE_CREATED", trade);
     }
 
     private void handleCancelTrade(TradeCommand command) {

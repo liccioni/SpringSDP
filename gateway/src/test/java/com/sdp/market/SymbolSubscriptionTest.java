@@ -2,7 +2,7 @@ package com.sdp.market;
 
 import com.sdp.common.PriceTick;
 import com.sdp.common.Side;
-import com.sdp.trade.TradeRejected;
+import com.sdp.common.Trade;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -37,9 +37,9 @@ class SymbolSubscriptionTest {
 
     @Test
     void alwaysShowsNonPriceTickEvents() {
-        TradeRejected rejection = new TradeRejected("EUR/USD", Side.BUY, BigDecimal.ONE, BigDecimal.ZERO, "quantity must be greater than zero");
+        Trade trade = new Trade("1", "EUR/USD", Side.BUY, BigDecimal.ONE, BigDecimal.ONE, Instant.now());
 
-        assertThat(subscriptions.isVisible(rejection)).isTrue();
+        assertThat(subscriptions.isVisible(trade)).isTrue();
     }
 
     private PriceTick priceTick(String symbol) {

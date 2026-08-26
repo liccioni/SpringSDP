@@ -6,6 +6,7 @@ import com.sdp.market.SubscriptionRequest;
 import com.sdp.session.Session;
 import com.sdp.trade.PendingTradeId;
 import com.sdp.trade.TradeRequest;
+import com.sdp.trade.TradeRequestOutcome;
 import com.sdp.trade.TradeService;
 
 import java.security.Principal;
@@ -43,10 +44,16 @@ import reactor.core.publisher.Sinks;
  *
  * Each connection starts subscribed to no symbols, so PRICE_TICK delivery is
  * scoped to that connection's own subscriptions via SUBSCRIBE/UNSUBSCRIBE
- * (see SymbolSubscription for the visibility rule). TRADE_CREATED and
- * TRADE_REJECTED stay broadcast to every session, per docs/protocol.md.
- * TRADE_PENDING, TRADE_CANCELLED, and TRADE_HISTORY are different: each is a
- * targeted reply to that connection's own request (CREATE_TRADE,
+ * (see SymbolSubscription for the visibility rule). TRADE_CREATED (issue
+ * #152, ADR 0028) now has two independent delivery paths: the submitting
+ * connection always gets it as a targeted reply to its own CONFIRM_TRADE
+ * (via directMessages, same mechanism as TRADE_PENDING/TRADE_CANCELLED
+ * below), and any connection subscribed to the trade blotter
+ * (SUBSCRIBE_BLOTTER/UNSUBSCRIBE_BLOTTER, see BlotterSubscription) also
+ * receives it via the shared, filtered EventBus - never unconditionally
+ * broadcast to every session. TRADE_REJECTED is purely a targeted reply,
+ * same bucket as TRADE_PENDING/TRADE_CANCELLED/TRADE_HISTORY below: each is
+ * a targeted reply to that connection's own request (CREATE_TRADE,
  * CANCEL_TRADE, GET_TRADE_HISTORY respectively), sent only to the requesting
  * connection via its own per-connection sink rather than the shared,
  * broadcast EventBus. See ADR 0018 for the two-step CREATE_TRADE ->
@@ -94,6 +101,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 		Flux<WebSocketMessage> events = eventBus.events()
 				.filter(session.subscriptions()::isVisible)
+				.filter(session.blotterSubscription()::isVisible)
 				.map(event -> new Envelope(event.eventType(), event))
 				.concatMap(envelope -> toMessage(webSocketSession, envelope));
 
@@ -147,10 +155,12 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 		Envelope envelope = objectMapper.readValue(text, Envelope.class);
 		return switch (envelope.type()) {
 			case "CREATE_TRADE" -> handleCreateTrade(envelope, session, directMessages);
-			case "CONFIRM_TRADE" -> handleConfirmTrade(envelope, session);
+			case "CONFIRM_TRADE" -> handleConfirmTrade(envelope, session, directMessages);
 			case "CANCEL_TRADE" -> handleCancelTrade(envelope, session, directMessages);
 			case "SUBSCRIBE" -> handleSubscribe(envelope, session);
 			case "UNSUBSCRIBE" -> handleUnsubscribe(envelope, session);
+			case "SUBSCRIBE_BLOTTER" -> handleSubscribeBlotter(session);
+			case "UNSUBSCRIBE_BLOTTER" -> handleUnsubscribeBlotter(session);
 			case "GET_TRADE_HISTORY" -> handleGetTradeHistory(envelope, directMessages);
 			default -> Mono.empty();
 		};
@@ -159,17 +169,25 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 	private Mono<Void> handleCreateTrade(Envelope envelope, Session session, Sinks.Many<Envelope> directMessages) {
 		TradeRequest request = objectMapper.convertValue(envelope.payload(), TradeRequest.class);
 		return tradeService.requestTrade(request, session)
-				.doOnNext(pending -> {
-					session.pendingTrades().add(pending.id());
-					emitDirect(directMessages, new Envelope("TRADE_PENDING", pending));
+				.doOnNext(outcome -> {
+					switch (outcome) {
+						case TradeRequestOutcome.Pending(var pending) -> {
+							session.pendingTrades().add(pending.id());
+							emitDirect(directMessages, new Envelope("TRADE_PENDING", pending));
+						}
+						case TradeRequestOutcome.Rejected(var rejected) ->
+								emitDirect(directMessages, new Envelope("TRADE_REJECTED", rejected));
+					}
 				})
 				.then();
 	}
 
-	private Mono<Void> handleConfirmTrade(Envelope envelope, Session session) {
+	private Mono<Void> handleConfirmTrade(Envelope envelope, Session session, Sinks.Many<Envelope> directMessages) {
 		String id = readPendingTradeId(envelope);
 		session.pendingTrades().remove(id);
-		return tradeService.confirmTrade(id, session).then();
+		return tradeService.confirmTrade(id, session)
+				.doOnNext(trade -> emitDirect(directMessages, new Envelope("TRADE_CREATED", trade)))
+				.then();
 	}
 
 	private Mono<Void> handleCancelTrade(Envelope envelope, Session session, Sinks.Many<Envelope> directMessages) {
@@ -196,6 +214,16 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 
 	private String readSymbol(Envelope envelope) {
 		return objectMapper.convertValue(envelope.payload(), SubscriptionRequest.class).symbol();
+	}
+
+	private Mono<Void> handleSubscribeBlotter(Session session) {
+		session.blotterSubscription().subscribe();
+		return Mono.empty();
+	}
+
+	private Mono<Void> handleUnsubscribeBlotter(Session session) {
+		session.blotterSubscription().unsubscribe();
+		return Mono.empty();
 	}
 
 	private Mono<Void> handleGetTradeHistory(Envelope envelope, Sinks.Many<Envelope> directMessages) {
