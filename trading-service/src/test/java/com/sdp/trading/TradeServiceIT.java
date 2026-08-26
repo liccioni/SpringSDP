@@ -59,20 +59,17 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
     private ObjectMapper objectMapper;
 
     private String tradeCreatedQueue;
-    private String tradeRejectedQueue;
     private String tradeResponsesQueue;
 
     @BeforeEach
     void bindTestQueuesToTheFanoutExchanges() {
         tradeCreatedQueue = bindAnonymousQueue("trade-created");
-        tradeRejectedQueue = bindAnonymousQueue("trade-rejected");
         tradeResponsesQueue = bindAnonymousQueue("trade-responses");
     }
 
     @AfterEach
     void deleteTestQueues() {
         amqpAdmin.deleteQueue(tradeCreatedQueue);
-        amqpAdmin.deleteQueue(tradeRejectedQueue);
         amqpAdmin.deleteQueue(tradeResponsesQueue);
     }
 
@@ -118,6 +115,13 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
 
         assertThat(tradeRepository.findById(pending.id()).block(Duration.ofSeconds(5))).isNotNull();
 
+        // The submitting connection's own correlated acknowledgment (ADR 0028).
+        TradeCommandResult confirmReply = receiveResponse();
+        assertThat(confirmReply.type()).isEqualTo("TRADE_CREATED");
+        com.sdp.contracts.Trade acknowledged = objectMapper.convertValue(confirmReply.payload(), com.sdp.contracts.Trade.class);
+        assertThat(acknowledged.id()).isEqualTo(pending.id());
+
+        // Still also broadcasts on the fanout exchange, for blotter-subscribed sessions (ADR 0028).
         Message message = rabbitTemplate.receive(tradeCreatedQueue, 5000);
         assertThat(message).isNotNull();
         com.sdp.contracts.Trade broadcast = objectMapper.readValue(message.getBody(), com.sdp.contracts.Trade.class);
@@ -126,7 +130,7 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
     }
 
     @Test
-    void createTradeWithInvalidQuantityRejectsAndBroadcastsWithoutPersisting() {
+    void createTradeWithInvalidQuantityRejectsAndRepliesWithTheRejection() {
         String correlationId = UUID.randomUUID().toString();
         TradeRequest request = new TradeRequest("GBP/USD", Side.SELL, new BigDecimal("1.2650"), new BigDecimal("0"));
 
@@ -135,12 +139,9 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
         TradeCommandResult reply = receiveResponse();
         assertThat(reply.correlationId()).isEqualTo(correlationId);
         assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
-
-        Message message = rabbitTemplate.receive(tradeRejectedQueue, 5000);
-        assertThat(message).isNotNull();
-        com.sdp.contracts.TradeRejected broadcast = objectMapper.readValue(message.getBody(), com.sdp.contracts.TradeRejected.class);
-        assertThat(broadcast.symbol()).isEqualTo("GBP/USD");
-        assertThat(broadcast.reason()).isEqualTo("quantity must be greater than zero");
+        com.sdp.contracts.TradeRejected rejected = objectMapper.convertValue(reply.payload(), com.sdp.contracts.TradeRejected.class);
+        assertThat(rejected.symbol()).isEqualTo("GBP/USD");
+        assertThat(rejected.reason()).isEqualTo("quantity must be greater than zero");
     }
 
     @Test
@@ -153,11 +154,8 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
         TradeCommandResult reply = receiveResponse();
         assertThat(reply.correlationId()).isEqualTo(correlationId);
         assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
-
-        Message message = rabbitTemplate.receive(tradeRejectedQueue, 5000);
-        assertThat(message).isNotNull();
-        com.sdp.contracts.TradeRejected broadcast = objectMapper.readValue(message.getBody(), com.sdp.contracts.TradeRejected.class);
-        assertThat(broadcast.reason()).isEqualTo("role does not permit trading");
+        com.sdp.contracts.TradeRejected rejected = objectMapper.convertValue(reply.payload(), com.sdp.contracts.TradeRejected.class);
+        assertThat(rejected.reason()).isEqualTo("role does not permit trading");
     }
 
     @Test
@@ -195,7 +193,8 @@ class TradeServiceIT implements PostgresIntegrationTest, RabbitMqIntegrationTest
         PendingTrade pending = objectMapper.convertValue(receiveResponse().payload(), PendingTrade.class);
         tradeService.handle(new TradeCommand(UUID.randomUUID().toString(), "trader1", Set.of("trader"), "CONFIRM_TRADE", new PendingTradeId(pending.id())))
                 .block(Duration.ofSeconds(5));
-        // Drain the TRADE_CREATED broadcast this confirm produced, unrelated to this test.
+        // Drain the CONFIRM_TRADE correlated reply and the TRADE_CREATED broadcast this confirm produced, unrelated to this test.
+        receiveResponse();
         rabbitTemplate.receive(tradeCreatedQueue, 5000);
 
         String correlationId = UUID.randomUUID().toString();
