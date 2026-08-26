@@ -47,8 +47,6 @@ spring:
           destination: trade-responses
         tradeCreated-out-0:
           destination: trade-created
-        tradeRejected-out-0:
-          destination: trade-rejected
         sessionStartedConsumer-in-0:
           destination: session-started
         loginSuccessConsumer-in-0:
@@ -68,10 +66,10 @@ spring:
           tradeCreated-out-0:
             producer:
               # Fanout: every consumer (the Gateway today) gets its own
-              # copy - see ADR 0022.
-              exchangeType: fanout
-          tradeRejected-out-0:
-            producer:
+              # copy - see ADR 0022. The Gateway relays this only to
+              # sessions subscribed to the trade blotter (ADR 0028) - the
+              # submitting session's own acknowledgment travels separately,
+              # as a correlated reply on trade-responses.
               exchangeType: fanout
           sessionStartedConsumer-in-0:
             consumer:

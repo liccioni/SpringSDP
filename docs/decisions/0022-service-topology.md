@@ -2,7 +2,7 @@
 
 Date: 2026-08-10
 
-Status: Accepted
+Status: Accepted (the "Update (issue #92)" section's claim that CONFIRM_TRADE gets no reply is superseded by [ADR 0028](0028-scoped-trade-delivery.md) - the rest of this decision, the service topology and correlated request/reply mechanism itself, still holds)
 
 ## Context
 

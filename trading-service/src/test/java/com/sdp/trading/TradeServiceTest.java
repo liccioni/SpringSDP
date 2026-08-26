@@ -78,14 +78,17 @@ class TradeServiceTest {
     }
 
     @Test
-    void createTradeWithNonPositiveQuantityRejectsAndBroadcastsWithoutHoldingAPending() {
+    void createTradeWithNonPositiveQuantityRejectsAndRepliesWithTheRejection() {
         TradeCommand command = command("CREATE_TRADE", new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("0")));
 
         service.handle(command).block();
 
         TradeCommandResult reply = captureReply();
         assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
-        verify(streamBridge).send(eq("tradeRejected-out-0"), any(TradeRejected.class));
+        TradeRejected rejected = objectMapper.convertValue(reply.payload(), TradeRejected.class);
+        assertThat(rejected.symbol()).isEqualTo("EUR/USD");
+        assertThat(rejected.reason()).isNotBlank();
+        verify(streamBridge, never()).send(eq("tradeRejected-out-0"), any());
         verify(auditService).record(eq(null), eq("trader1"), eq("TRADE_REJECTED"), any());
     }
 
@@ -98,7 +101,9 @@ class TradeServiceTest {
 
         TradeCommandResult reply = captureReply();
         assertThat(reply.type()).isEqualTo("TRADE_REJECTED");
-        verify(streamBridge).send(eq("tradeRejected-out-0"), any(TradeRejected.class));
+        TradeRejected rejected = objectMapper.convertValue(reply.payload(), TradeRejected.class);
+        assertThat(rejected.symbol()).isEqualTo("EUR/USD");
+        verify(streamBridge, never()).send(eq("tradeRejected-out-0"), any());
         verify(tradeRepository, never()).save(any());
     }
 
@@ -112,7 +117,7 @@ class TradeServiceTest {
     }
 
     @Test
-    void confirmTradePersistsAndBroadcastsTradeCreatedWithNoReply() {
+    void confirmTradePersistsBroadcastsAndRepliesWithTradeCreated() {
         TradeCommand created = command("CREATE_TRADE", new TradeRequest("GBP/USD", Side.SELL, new BigDecimal("1.2650"), new BigDecimal("500000")));
         service.handle(created).block();
         PendingTrade pending = objectMapper.convertValue(captureReply().payload(), PendingTrade.class);
@@ -121,10 +126,18 @@ class TradeServiceTest {
         service.handle(confirm).block();
 
         verify(tradeRepository).save(any());
+        // Still broadcasts on the fanout exchange - the Gateway relays this to blotter-subscribed sessions (ADR 0028).
         verify(streamBridge).send(eq("tradeCreated-out-0"), any(com.sdp.contracts.Trade.class));
         verify(auditService).record(eq(null), eq("trader1"), eq("TRADE_EXECUTED"), any());
-        // No reply for CONFIRM_TRADE: only the two calls above should exist on tradeResponses-out-0.
-        verify(streamBridge, org.mockito.Mockito.times(1)).send(eq("tradeResponses-out-0"), any());
+
+        // Also now replies to the submitting connection: the CREATE_TRADE reply plus this new CONFIRM_TRADE reply.
+        var captor = org.mockito.ArgumentCaptor.forClass(TradeCommandResult.class);
+        verify(streamBridge, org.mockito.Mockito.times(2)).send(eq("tradeResponses-out-0"), captor.capture());
+        TradeCommandResult confirmReply = captor.getAllValues().get(1);
+        assertThat(confirmReply.correlationId()).isEqualTo(confirm.correlationId());
+        assertThat(confirmReply.type()).isEqualTo("TRADE_CREATED");
+        com.sdp.contracts.Trade trade = objectMapper.convertValue(confirmReply.payload(), com.sdp.contracts.Trade.class);
+        assertThat(trade.id()).isEqualTo(pending.id());
     }
 
     @Test

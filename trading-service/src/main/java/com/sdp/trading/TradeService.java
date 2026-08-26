@@ -29,27 +29,29 @@ import tools.jackson.databind.ObjectMapper;
  * Handles the "trade-requests" correlated request/reply pair (see ADR
  * 0022's update, issue #92): CREATE_TRADE validates and holds a
  * PendingTrade (ADR 0018), or rejects immediately; CONFIRM_TRADE persists
- * a previously requested trade and broadcasts it; CANCEL_TRADE discards
- * one; GET_TRADE_HISTORY answers with one cursor-paginated, filterable,
- * sortable page of history (TradeHistoryQueryService, issue #130) rather
- * than the full persisted history. Every reply (except CONFIRM_TRADE,
- * which needs none - see below) echoes the request's correlationId on
+ * a previously requested trade; CANCEL_TRADE discards one; GET_TRADE_HISTORY
+ * answers with one cursor-paginated, filterable, sortable page of history
+ * (TradeHistoryQueryService, issue #130) rather than the full persisted
+ * history. Every reply echoes the request's correlationId on
  * "trade-responses" so the Gateway (today, the monolith - see ADR 0022)
  * can route it back to the specific connection that asked.
- * TRADE_CREATED/TRADE_REJECTED still broadcast via #91's fanout exchanges,
- * unrelated to any correlationId.
  *
- * CONFIRM_TRADE gets no reply at all: the wire protocol never replies to
- * it either (docs/protocol.md - "an unknown or already-resolved id is a
- * silent no-op"), and its only real effect, the TRADE_CREATED broadcast,
- * already exists via #91.
+ * CONFIRM_TRADE now also gets a correlated TRADE_CREATED reply (issue
+ * #152, ADR 0028) - the submitting connection's own UI resolution
+ * (clearing its pending-trade prompt, showing an execution toast) depends
+ * on reliably receiving this regardless of any subscription state. This is
+ * in addition to, not instead of, the pre-existing TRADE_CREATED broadcast
+ * on the "trade-created" fanout exchange, which the Gateway still relays -
+ * but now only to sessions subscribed to the trade blotter (see ADR 0028).
+ * CREATE_TRADE's rejection reply now carries the real TradeRejected
+ * payload instead of null, and no longer also broadcasts - rejected trades
+ * are never persisted, so there's nothing for a blotter subscriber to see.
  */
 @Service
 public class TradeService {
 
     private static final Set<String> KNOWN_SYMBOLS = Set.of("EUR/USD", "GBP/USD", "USD/JPY");
     private static final String TRADE_CREATED_BINDING = "tradeCreated-out-0";
-    private static final String TRADE_REJECTED_BINDING = "tradeRejected-out-0";
     private static final String TRADE_RESPONSES_BINDING = "tradeResponses-out-0";
 
     private final TradeRepository tradeRepository;
@@ -100,7 +102,7 @@ public class TradeService {
         Optional<String> rejectionReason = validate(request, command.roles());
         if (rejectionReason.isPresent()) {
             return reject(request, command.submittedBy(), rejectionReason.get())
-                    .then(replyTo(command, "TRADE_REJECTED", null));
+                    .flatMap(rejected -> replyTo(command, "TRADE_REJECTED", rejected));
         }
         PendingTrade pending = new PendingTrade(
                 UUID.randomUUID().toString(), request.symbol(), request.side(), request.price(), request.quantity(), Instant.now());
@@ -113,7 +115,8 @@ public class TradeService {
         if (pending == null) {
             return Mono.empty();
         }
-        return execute(pending, command.submittedBy()).then();
+        return execute(pending, command.submittedBy())
+                .flatMap(trade -> replyTo(command, "TRADE_CREATED", toContract(trade)));
     }
 
     private Mono<Void> handleCancelTrade(TradeCommand command) {
@@ -138,10 +141,11 @@ public class TradeService {
                 .flatMap(saved -> auditService.record(null, submittedBy, "TRADE_EXECUTED", describe(saved)).thenReturn(saved));
     }
 
-    private Mono<Void> reject(TradeRequest request, String submittedBy, String reason) {
-        streamBridge.send(TRADE_REJECTED_BINDING, new com.sdp.contracts.TradeRejected(
-                request.symbol(), request.side(), request.price(), request.quantity(), reason));
-        return auditService.record(null, submittedBy, "TRADE_REJECTED", describe(request) + " - " + reason).then();
+    private Mono<com.sdp.contracts.TradeRejected> reject(TradeRequest request, String submittedBy, String reason) {
+        com.sdp.contracts.TradeRejected rejected = new com.sdp.contracts.TradeRejected(
+                request.symbol(), request.side(), request.price(), request.quantity(), reason);
+        return auditService.record(null, submittedBy, "TRADE_REJECTED", describe(request) + " - " + reason)
+                .thenReturn(rejected);
     }
 
     private Mono<Void> replyTo(TradeCommand command, String type, Object payload) {

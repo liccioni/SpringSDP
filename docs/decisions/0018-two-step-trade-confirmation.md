@@ -2,7 +2,7 @@
 
 Date: 2026-08-07
 
-Status: Accepted
+Status: Accepted (the "publishes the existing broadcast TRADE_CREATED" claim below is superseded by [ADR 0028](0028-scoped-trade-delivery.md) - the rest of this decision, the two-step workflow itself, still holds)
 
 ## Context
 

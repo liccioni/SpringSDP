@@ -13,7 +13,6 @@ import com.sdp.common.Trade;
 import com.sdp.market.SubscriptionRequest;
 import com.sdp.trade.PendingTrade;
 import com.sdp.trade.PendingTradeId;
-import com.sdp.trade.TradeRejected;
 import com.sdp.trade.TradeRequest;
 
 import tools.jackson.databind.ObjectMapper;
@@ -384,8 +383,11 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 		assertThat(pending.quantity()).isEqualByComparingTo("1000000");
 	}
 
+	// The submitting connection's own correlated acknowledgment (issue #152,
+	// ADR 0028) - deliberately never sends SUBSCRIBE_BLOTTER, proving this
+	// delivery path is independent of blotter-subscription state.
 	@Test
-	void confirmingAPendingTradeBroadcastsTradeCreated() throws Exception {
+	void confirmingAPendingTradeRepliesWithTradeCreatedToTheSubmitter() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		AtomicReference<String> received = new AtomicReference<>();
 		TradeRequest request = new TradeRequest("EUR/USD", Side.SELL, new BigDecimal("1.0855"), new BigDecimal("750000"));
@@ -418,16 +420,12 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 		assertThat(trade.quantity()).isEqualByComparingTo("750000");
 	}
 
-	// The next two tests prove the #91 consumer path (Backend-Trading
-	// Service -> RabbitMQ fanout -> monolith -> EventBus -> every connected
-	// session), using two connections rather than one: TRADE_CREATED/
-	// TRADE_REJECTED are broadcast to everyone (docs/protocol.md), unlike
-	// PRICE_TICK's subscription filtering, so this is the meaningful proof
-	// for this path specifically. No real CREATE_TRADE trigger exists yet
-	// (that's #92) - the Backend-Trading Service's production side is
-	// simulated the same way #90 simulated the Market Data Service's.
+	// Proves the #91 consumer path (Backend-Trading Service -> RabbitMQ
+	// fanout -> monolith -> EventBus), now gated by BlotterSubscription
+	// (issue #152, ADR 0028) rather than reaching every connected session
+	// unconditionally: both connections send SUBSCRIBE_BLOTTER first.
 	@Test
-	void tradeCreatedFromTheBackendTradingServiceReachesEveryConnectedSession() throws Exception {
+	void tradeCreatedFromTheBackendTradingServiceReachesBlotterSubscribedSessions() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		AtomicReference<String> receivedByFirst = new AtomicReference<>();
 		AtomicReference<String> receivedBySecond = new AtomicReference<>();
@@ -436,13 +434,15 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 				new BigDecimal("149.60"), new BigDecimal("500000"), Instant.now());
 
 		Mono<Void> first = client.execute(wsUri(), sessionCookieHeader(),
-				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
-						.filter(text -> text.contains("TRADE_CREATED"))
-						.next().doOnNext(receivedByFirst::set).then());
+				session -> sendEnvelope(session, "SUBSCRIBE_BLOTTER", null)
+						.then(session.receive().map(WebSocketMessage::getPayloadAsText)
+								.filter(text -> text.contains("TRADE_CREATED"))
+								.next().doOnNext(receivedByFirst::set).then()));
 		Mono<Void> second = client.execute(wsUri(), sessionCookieHeader(),
-				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
-						.filter(text -> text.contains("TRADE_CREATED"))
-						.next().doOnNext(receivedBySecond::set).then());
+				session -> sendEnvelope(session, "SUBSCRIBE_BLOTTER", null)
+						.then(session.receive().map(WebSocketMessage::getPayloadAsText)
+								.filter(text -> text.contains("TRADE_CREATED"))
+								.next().doOnNext(receivedBySecond::set).then()));
 		Mono<Void> publish = Mono.fromRunnable(() -> publishToFanoutExchange("trade-created", published))
 				.delaySubscription(Duration.ofMillis(200))
 				.then();
@@ -460,36 +460,73 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 		}
 	}
 
+	// The actual regression proof for issue #152: a connection that never
+	// subscribes to the blotter must not receive TRADE_CREATED at all, even
+	// though the exact same event reaches a subscribed connection (previous
+	// test). Bounded .timeout(...) expecting an empty completion, not
+	// block(), so a passing test can't hang.
 	@Test
-	void tradeRejectedFromTheBackendTradingServiceReachesEveryConnectedSession() throws Exception {
+	void tradeCreatedFromTheBackendTradingServiceDoesNotReachAnUnsubscribedSession() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
-		AtomicReference<String> receivedByFirst = new AtomicReference<>();
-		AtomicReference<String> receivedBySecond = new AtomicReference<>();
-		com.sdp.contracts.TradeRejected published = new com.sdp.contracts.TradeRejected(
-				"USD/JPY", com.sdp.contracts.Side.SELL, new BigDecimal("149.60"), new BigDecimal("0"),
-				"quantity must be greater than zero");
+		com.sdp.contracts.Trade published = new com.sdp.contracts.Trade(
+				java.util.UUID.randomUUID().toString(), "USD/JPY", com.sdp.contracts.Side.SELL,
+				new BigDecimal("149.65"), new BigDecimal("500000"), Instant.now());
 
-		Mono<Void> first = client.execute(wsUri(), sessionCookieHeader(),
+		Mono<Void> unsubscribed = client.execute(wsUri(), sessionCookieHeader(),
 				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
-						.filter(text -> text.contains("TRADE_REJECTED"))
-						.next().doOnNext(receivedByFirst::set).then());
-		Mono<Void> second = client.execute(wsUri(), sessionCookieHeader(),
-				session -> session.receive().map(WebSocketMessage::getPayloadAsText)
-						.filter(text -> text.contains("TRADE_REJECTED"))
-						.next().doOnNext(receivedBySecond::set).then());
-		Mono<Void> publish = Mono.fromRunnable(() -> publishToFanoutExchange("trade-rejected", published))
+						.filter(text -> text.contains("TRADE_CREATED"))
+						.next()
+						.timeout(Duration.ofSeconds(1))
+						.onErrorResume(java.util.concurrent.TimeoutException.class, e -> Mono.empty())
+						.then());
+		Mono<Void> publish = Mono.fromRunnable(() -> publishToFanoutExchange("trade-created", published))
 				.delaySubscription(Duration.ofMillis(200))
 				.then();
 
-		Mono.when(first, second, publish).block(Duration.ofSeconds(5));
+		Mono.when(unsubscribed, publish).block(Duration.ofSeconds(5));
+		// No assertion beyond "didn't time out block()" above - reaching this
+		// point means the filtered next() never emitted, i.e. TRADE_CREATED
+		// never arrived on this unsubscribed connection.
+	}
 
-		for (AtomicReference<String> received : List.of(receivedByFirst, receivedBySecond)) {
-			Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
-			assertThat(envelope.type()).isEqualTo("TRADE_REJECTED");
-			TradeRejected rejected = objectMapper.convertValue(envelope.payload(), TradeRejected.class);
-			assertThat(rejected.symbol()).isEqualTo("USD/JPY");
-			assertThat(rejected.reason()).isEqualTo("quantity must be greater than zero");
-		}
+	// A rejection is never delivered to anyone but the submitter (issue #152,
+	// ADR 0028) - unlike TRADE_CREATED, this holds regardless of blotter
+	// subscription, since rejected trades are never persisted so there's
+	// nothing for the blotter to show. Uses a real CREATE_TRADE (via
+	// FakeTradingService) on one connection while a second, blotter-subscribed
+	// connection proves it never sees TRADE_REJECTED.
+	@Test
+	void rejectedTradeReachesOnlyTheSubmitter() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("0"));
+		AtomicReference<String> receivedBySubmitter = new AtomicReference<>();
+
+		Mono<Void> submitter = client.execute(wsUri(), sessionCookieHeader(), session -> {
+			Mono<Void> sendCreateTrade = sendEnvelope(session, "CREATE_TRADE", request)
+					.delaySubscription(Duration.ofMillis(300));
+
+			Mono<Void> receiveTradeRejected = session.receive()
+					.map(WebSocketMessage::getPayloadAsText)
+					.filter(text -> text.contains("TRADE_REJECTED"))
+					.next()
+					.doOnNext(receivedBySubmitter::set)
+					.then();
+
+			return sendCreateTrade.and(receiveTradeRejected);
+		});
+		Mono<Void> otherBlotterSubscribedSession = client.execute(wsUri(), sessionCookieHeader(),
+				session -> sendEnvelope(session, "SUBSCRIBE_BLOTTER", null)
+						.then(session.receive().map(WebSocketMessage::getPayloadAsText)
+								.filter(text -> text.contains("TRADE_REJECTED"))
+								.next()
+								.timeout(Duration.ofSeconds(2))
+								.onErrorResume(java.util.concurrent.TimeoutException.class, e -> Mono.empty())
+								.then()));
+
+		Mono.when(submitter, otherBlotterSubscribedSession).block(Duration.ofSeconds(5));
+
+		Envelope envelope = objectMapper.readValue(receivedBySubmitter.get(), Envelope.class);
+		assertThat(envelope.type()).isEqualTo("TRADE_REJECTED");
 	}
 
 	@Test
@@ -562,7 +599,7 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 	}
 
 	@Test
-	void rejectsAnInvalidTradeAndBroadcastsTradeRejected() throws Exception {
+	void rejectsAnInvalidTradeAndRepliesWithTradeRejected() throws Exception {
 		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
 		AtomicReference<String> received = new AtomicReference<>();
 		TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0850"), new BigDecimal("0"));
@@ -584,7 +621,7 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 		Envelope envelope = objectMapper.readValue(received.get(), Envelope.class);
 		assertThat(envelope.type()).isEqualTo("TRADE_REJECTED");
 
-		TradeRejected rejection = objectMapper.convertValue(envelope.payload(), TradeRejected.class);
+		com.sdp.contracts.TradeRejected rejection = objectMapper.convertValue(envelope.payload(), com.sdp.contracts.TradeRejected.class);
 		assertThat(rejection.symbol()).isEqualTo("EUR/USD");
 		assertThat(rejection.reason()).isEqualTo("quantity must be greater than zero");
 	}

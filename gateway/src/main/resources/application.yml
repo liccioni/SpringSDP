@@ -54,12 +54,12 @@ spring:
     host: ${SPRING_RABBITMQ_HOST:localhost}
     port: ${SPRING_RABBITMQ_PORT:5672}
   # Consumer of the Market Data Service's PRICE_TICK fanout exchange (issue
-  # #90) and the Backend/Trading Service's TRADE_CREATED/TRADE_REJECTED
-  # fanout exchanges (issue #91) - see ADR 0022. Relays each onto the
-  # in-process EventBus (com.sdp.market.MarketDataService and
-  # com.sdp.trade.TradeService's own *Consumer @Bean methods) so
-  # SdpWebSocketHandler's delivery is unchanged from when the monolith
-  # played this role. No consumer group on any of these: each instance
+  # #90) and the Backend/Trading Service's TRADE_CREATED fanout exchange
+  # (issue #91) - see ADR 0022. Relays each onto the in-process EventBus
+  # (com.sdp.market.MarketDataService and com.sdp.trade.TradeService's own
+  # *Consumer @Bean methods), the latter now visible only to sessions
+  # subscribed to the trade blotter (issue #152, ADR 0028) rather than every
+  # connected session. No consumer group on any of these: each instance
   # gets its own anonymous, auto-delete queue, so a future second Gateway
   # instance would get its own copy too (moot today - single instance
   # assumed, see ADR 0022).
@@ -80,15 +80,13 @@ spring:
   # entirely (see ADR 0022).
   cloud:
     function:
-      definition: priceTickConsumer;tradeCreatedConsumer;tradeRejectedConsumer;tradeResponseConsumer
+      definition: priceTickConsumer;tradeCreatedConsumer;tradeResponseConsumer
     stream:
       bindings:
         priceTickConsumer-in-0:
           destination: price-ticks
         tradeCreatedConsumer-in-0:
           destination: trade-created
-        tradeRejectedConsumer-in-0:
-          destination: trade-rejected
         tradeResponseConsumer-in-0:
           destination: trade-responses
         tradeRequests-out-0:
@@ -107,9 +105,6 @@ spring:
             consumer:
               exchangeType: fanout
           tradeCreatedConsumer-in-0:
-            consumer:
-              exchangeType: fanout
-          tradeRejectedConsumer-in-0:
             consumer:
               exchangeType: fanout
           tradeResponseConsumer-in-0:

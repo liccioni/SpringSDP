@@ -66,34 +66,45 @@ class TradeServiceTest {
                 UUID.randomUUID().toString(), "EUR/USD", com.sdp.contracts.Side.BUY, request.price(), request.quantity(), Instant.now());
         service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_PENDING", pending));
 
-        PendingTrade result = resultMono.block(Duration.ofSeconds(2));
+        TradeRequestOutcome outcome = resultMono.block(Duration.ofSeconds(2));
+        assertThat(outcome).isInstanceOf(TradeRequestOutcome.Pending.class);
+        PendingTrade result = ((TradeRequestOutcome.Pending) outcome).pending();
         assertThat(result.id()).isEqualTo(pending.id());
         assertThat(result.symbol()).isEqualTo("EUR/USD");
         assertThat(result.side()).isEqualTo(Side.BUY);
     }
 
     @Test
-    void requestTradeResolvesEmptyWhenTheReplyIsARejection() {
+    void requestTradeResolvesFromTheRejectedReply() {
         TradeRequest request = new TradeRequest("EUR/USD", Side.BUY, new BigDecimal("1.0851"), new BigDecimal("0"));
 
         var resultMono = service.requestTrade(request, session);
         TradeCommand sent = captureSentCommand();
 
-        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_REJECTED", null));
+        com.sdp.contracts.TradeRejected rejected = new com.sdp.contracts.TradeRejected(
+                "EUR/USD", com.sdp.contracts.Side.BUY, request.price(), request.quantity(), "quantity must be greater than zero");
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_REJECTED", rejected));
 
-        assertThat(resultMono.block(Duration.ofSeconds(2))).isNull();
+        TradeRequestOutcome outcome = resultMono.block(Duration.ofSeconds(2));
+        assertThat(outcome).isInstanceOf(TradeRequestOutcome.Rejected.class);
+        assertThat(((TradeRequestOutcome.Rejected) outcome).rejected().reason()).isEqualTo("quantity must be greater than zero");
     }
 
     @Test
-    void confirmTradeSendsAConfirmTradeCommandAndResolvesImmediatelyWithoutAReply() {
-        Trade trade = service.confirmTrade("pending-1", session).block(Duration.ofSeconds(2));
-
-        assertThat(trade).isNull();
+    void confirmTradeResolvesFromTheCreatedReply() {
+        var resultMono = service.confirmTrade("pending-1", session);
         ArgumentCaptor<TradeCommand> captor = ArgumentCaptor.forClass(TradeCommand.class);
         verify(streamBridge).send(eq("tradeRequests-out-0"), captor.capture());
         TradeCommand sent = captor.getValue();
         assertThat(sent.type()).isEqualTo("CONFIRM_TRADE");
         assertThat(objectMapper.convertValue(sent.payload(), PendingTradeId.class).id()).isEqualTo("pending-1");
+
+        com.sdp.contracts.Trade trade = new com.sdp.contracts.Trade(
+                "pending-1", "EUR/USD", com.sdp.contracts.Side.BUY, new BigDecimal("1.0850"), new BigDecimal("1000000"), Instant.now());
+        service.tradeResponseConsumer().accept(new TradeCommandResult(sent.correlationId(), "TRADE_CREATED", trade));
+
+        com.sdp.contracts.Trade result = resultMono.block(Duration.ofSeconds(2));
+        assertThat(result.id()).isEqualTo("pending-1");
     }
 
     @Test
@@ -166,21 +177,6 @@ class TradeServiceTest {
                 .assertNext(event -> {
                     assertThat(event).isInstanceOf(Trade.class);
                     assertThat(((Trade) event).symbol()).isEqualTo("EUR/USD");
-                })
-                .thenCancel()
-                .verify();
-    }
-
-    @Test
-    void tradeRejectedConsumerRelaysOntoTheEventBus() {
-        com.sdp.contracts.TradeRejected rejected = new com.sdp.contracts.TradeRejected(
-                "EUR/USD", com.sdp.contracts.Side.SELL, new BigDecimal("1.0850"), new BigDecimal("0"), "quantity must be greater than zero");
-
-        StepVerifier.create(eventBus.events())
-                .then(() -> service.tradeRejectedConsumer().accept(rejected))
-                .assertNext(event -> {
-                    assertThat(event).isInstanceOf(TradeRejected.class);
-                    assertThat(((TradeRejected) event).reason()).isEqualTo("quantity must be greater than zero");
                 })
                 .thenCancel()
                 .verify();
