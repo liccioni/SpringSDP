@@ -125,21 +125,26 @@ describe('PriceGrid', () => {
     })
   })
 
-  it('subscribes to the known symbols once the connection opens', async () => {
+  it('subscribes only to the majors from a SYMBOLS envelope, not the full catalog', async () => {
     const received: string[] = []
     mockServer.on('connection', (socket) => {
       socket.on('message', (message) => {
         received.push(message as string)
       })
+      socket.send(
+        JSON.stringify({
+          type: 'SYMBOLS',
+          payload: { symbols: ['EUR/USD', 'GBP/USD', 'USD/JPY', 'EUR/JPY'], majors: ['EUR/USD', 'GBP/USD'] },
+        }),
+      )
     })
 
     render(<PriceGrid />)
 
-    await waitFor(() => expect(received).toHaveLength(3))
+    await waitFor(() => expect(received).toHaveLength(2))
     expect(received.map((message) => JSON.parse(message))).toEqual([
       { type: 'SUBSCRIBE', payload: { symbol: 'EUR/USD' } },
       { type: 'SUBSCRIBE', payload: { symbol: 'GBP/USD' } },
-      { type: 'SUBSCRIBE', payload: { symbol: 'USD/JPY' } },
     ])
   })
 

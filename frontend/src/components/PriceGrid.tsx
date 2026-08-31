@@ -12,16 +12,12 @@ import { tradingTheme } from '../theme/tradingTheme'
 import type { Envelope } from '../types/envelope'
 import type { PendingTrade } from '../types/pendingTrade'
 import type { PriceTick } from '../types/priceTick'
+import type { SymbolCatalog } from '../types/symbolCatalog'
 import type { Side, TradeRequest } from '../types/tradeRequest'
 
 ModuleRegistry.registerModules([AllCommunityModule])
 
 const DEFAULT_QUANTITY = 1_000_000
-
-// The backend now only streams PRICE_TICK for symbols a connection has subscribed
-// to. There's no symbol-discovery message yet, so this list must be kept in sync
-// with MarketDataService's tradable symbols on the backend.
-const KNOWN_SYMBOLS = ['EUR/USD', 'GBP/USD', 'USD/JPY']
 
 function getRowId(params: GetRowIdParams<PriceTick>) {
   return params.data.symbol
@@ -47,15 +43,28 @@ function PriceGrid() {
     const unsubscribeTradeCreated = subscribe('TRADE_CREATED', handleTradeResolved)
     const unsubscribeTradeCancelled = subscribe('TRADE_CANCELLED', handleTradeResolved)
 
-    for (const symbol of KNOWN_SYMBOLS) {
-      send({ type: 'SUBSCRIBE', payload: { symbol } })
-    }
+    // Each connection starts subscribed to nothing (ADR 0013); the gateway
+    // tells us the tradable catalog and its default-subscribed "majors"
+    // subset via SYMBOLS, sent once right after HELLO (issue #159) - no more
+    // hardcoding a copy of the backend's symbol list here.
+    let defaultSubscribedSymbols: string[] = []
+    const unsubscribeSymbols = subscribe('SYMBOLS', (envelope) => {
+      const catalog = envelope.payload as SymbolCatalog
+      defaultSubscribedSymbols = catalog.majors
+      for (const symbol of defaultSubscribedSymbols) {
+        send({ type: 'SUBSCRIBE', payload: { symbol } })
+      }
+    })
 
     return () => {
       unsubscribePriceTick()
       unsubscribeTradePending()
       unsubscribeTradeCreated()
       unsubscribeTradeCancelled()
+      unsubscribeSymbols()
+      for (const symbol of defaultSubscribedSymbols) {
+        send({ type: 'UNSUBSCRIBE', payload: { symbol } })
+      }
     }
   }, [])
 
