@@ -211,6 +211,33 @@ class SdpWebSocketHandlerIT implements RedisIntegrationTest, RabbitMqIntegration
 		assertThat(envelope.payload()).isEqualTo("Hello, trader1!");
 	}
 
+	// Issue #159: proves the discovery message itself, not just that
+	// PriceGrid.tsx happens to behave correctly against it - the two were
+	// never actually pinned together by an automated test before this retro.
+	@Test
+	void sendsSymbolsEnvelopeRightAfterHello() throws Exception {
+		ReactorNettyWebSocketClient client = new ReactorNettyWebSocketClient();
+		List<String> received = new ArrayList<>();
+
+		client.execute(wsUri(), sessionCookieHeader(),
+				session -> session.receive()
+						.take(2)
+						.map(WebSocketMessage::getPayloadAsText)
+						.doOnNext(received::add)
+						.then())
+				.block(Duration.ofSeconds(5));
+
+		assertThat(received).hasSize(2);
+		assertThat(objectMapper.readValue(received.get(0), Envelope.class).type()).isEqualTo("HELLO");
+
+		Envelope symbolsEnvelope = objectMapper.readValue(received.get(1), Envelope.class);
+		assertThat(symbolsEnvelope.type()).isEqualTo("SYMBOLS");
+		com.sdp.contracts.SymbolCatalog catalog =
+				objectMapper.convertValue(symbolsEnvelope.payload(), com.sdp.contracts.SymbolCatalog.class);
+		assertThat(catalog.symbols()).isEqualTo(com.sdp.contracts.SymbolCatalog.ALL_SYMBOLS);
+		assertThat(catalog.majors()).isEqualTo(com.sdp.contracts.SymbolCatalog.MAJORS);
+	}
+
 	// Proves the producer side of #93: connecting publishes a SESSION_STARTED
 	// event onto the "session-started" fanout exchange for the Backend/
 	// Trading Service to audit, in place of the direct in-process
