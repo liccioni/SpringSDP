@@ -1,12 +1,14 @@
 package com.sdp.marketdata;
 
 import com.sdp.contracts.PriceTick;
+import com.sdp.contracts.SymbolCatalog;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -26,10 +28,33 @@ import reactor.core.publisher.Flux;
 @Service
 public class MarketDataService {
 
-    private static final Map<String, BigDecimal> BASE_PRICES = Map.of(
-            "EUR/USD", new BigDecimal("1.0850"),
-            "GBP/USD", new BigDecimal("1.2650"),
-            "USD/JPY", new BigDecimal("149.50"));
+    // Seed mid-price per symbol in SymbolCatalog.ALL_SYMBOLS (issue #159) -
+    // a MarketDataServiceTest assertion keeps this map's keys in sync with
+    // the catalog, since a seed price is this service's own concern and
+    // isn't itself part of the shared catalog.
+    private static final Map<String, BigDecimal> BASE_PRICES = Map.ofEntries(
+            Map.entry("EUR/USD", new BigDecimal("1.0850")),
+            Map.entry("GBP/USD", new BigDecimal("1.2650")),
+            Map.entry("USD/JPY", new BigDecimal("149.50")),
+            Map.entry("USD/CHF", new BigDecimal("0.8850")),
+            Map.entry("AUD/USD", new BigDecimal("0.6550")),
+            Map.entry("USD/CAD", new BigDecimal("1.3650")),
+            Map.entry("NZD/USD", new BigDecimal("0.6050")),
+            Map.entry("EUR/GBP", new BigDecimal("0.8580")),
+            Map.entry("EUR/JPY", new BigDecimal("162.20")),
+            Map.entry("GBP/JPY", new BigDecimal("189.10")),
+            Map.entry("EUR/CHF", new BigDecimal("0.9600")),
+            Map.entry("AUD/JPY", new BigDecimal("97.90")),
+            Map.entry("USD/CNH", new BigDecimal("7.2500")),
+            Map.entry("USD/MXN", new BigDecimal("18.20")));
+
+    static {
+        if (!BASE_PRICES.keySet().equals(Set.copyOf(SymbolCatalog.ALL_SYMBOLS))) {
+            throw new IllegalStateException(
+                    "BASE_PRICES must have exactly one seed price per SymbolCatalog.ALL_SYMBOLS entry");
+        }
+    }
+
     private static final BigDecimal SPREAD = new BigDecimal("0.0002");
     private static final BigDecimal MAX_STEP = new BigDecimal("0.0005");
     private static final Duration TICK_INTERVAL = Duration.ofSeconds(1);
