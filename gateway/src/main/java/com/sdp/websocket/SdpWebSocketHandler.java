@@ -1,5 +1,6 @@
 package com.sdp.websocket;
 
+import com.sdp.contracts.SymbolCatalog;
 import com.sdp.contracts.TradeHistoryQuery;
 import com.sdp.eventbus.EventBus;
 import com.sdp.market.SubscriptionRequest;
@@ -99,6 +100,14 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 						SESSION_STARTED_BINDING, new com.sdp.contracts.SessionStarted(session.id(), session.username())))
 				.then(toMessage(webSocketSession, new Envelope("HELLO", "Hello, " + session.username() + "!")));
 
+		// Sent once, right after HELLO (issue #159): tells the frontend the
+		// tradable symbol catalog and its default-subscribed "majors" subset,
+		// replacing the frontend's own hardcoded copy. A compile-time shared
+		// constant (see SymbolCatalog, ADR 0029), not a per-connection query -
+		// every connection gets the identical catalog.
+		Mono<WebSocketMessage> symbolCatalog =
+				toMessage(webSocketSession, new Envelope("SYMBOLS", SymbolCatalog.defaultCatalog()));
+
 		Flux<WebSocketMessage> events = eventBus.events()
 				.filter(session.subscriptions()::isVisible)
 				.filter(session.blotterSubscription()::isVisible)
@@ -108,7 +117,7 @@ public class SdpWebSocketHandler implements WebSocketHandler {
 		Flux<WebSocketMessage> direct = directMessages.asFlux()
 				.concatMap(envelope -> toMessage(webSocketSession, envelope));
 
-		Flux<WebSocketMessage> outbound = hello.concatWith(events).mergeWith(direct);
+		Flux<WebSocketMessage> outbound = hello.concatWith(symbolCatalog).concatWith(events).mergeWith(direct);
 
 		Mono<Void> inbound = webSocketSession.receive()
 				.map(WebSocketMessage::getPayloadAsText)
