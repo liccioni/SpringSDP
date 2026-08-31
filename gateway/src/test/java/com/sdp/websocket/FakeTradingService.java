@@ -2,6 +2,7 @@ package com.sdp.websocket;
 
 import com.sdp.contracts.PendingTrade;
 import com.sdp.contracts.PendingTradeId;
+import com.sdp.contracts.SymbolCatalog;
 import com.sdp.contracts.Trade;
 import com.sdp.contracts.TradeCommand;
 import com.sdp.contracts.TradeCommandResult;
@@ -47,7 +48,7 @@ import tools.jackson.databind.ObjectMapper;
  */
 class FakeTradingService {
 
-    private static final Set<String> KNOWN_SYMBOLS = Set.of("EUR/USD", "GBP/USD", "USD/JPY");
+    private static final Set<String> KNOWN_SYMBOLS = Set.copyOf(SymbolCatalog.ALL_SYMBOLS);
 
     private final RabbitTemplate rabbitTemplate;
     private final ObjectMapper objectMapper;

@@ -3,6 +3,7 @@ package com.sdp.trading;
 import com.sdp.audit.AuditService;
 import com.sdp.contracts.PendingTrade;
 import com.sdp.contracts.PendingTradeId;
+import com.sdp.contracts.SymbolCatalog;
 import com.sdp.contracts.TradeCommand;
 import com.sdp.contracts.TradeCommandResult;
 import com.sdp.contracts.TradeHistoryQuery;
@@ -50,7 +51,7 @@ import tools.jackson.databind.ObjectMapper;
 @Service
 public class TradeService {
 
-    private static final Set<String> KNOWN_SYMBOLS = Set.of("EUR/USD", "GBP/USD", "USD/JPY");
+    private static final Set<String> KNOWN_SYMBOLS = Set.copyOf(SymbolCatalog.ALL_SYMBOLS);
     private static final String TRADE_CREATED_BINDING = "tradeCreated-out-0";
     private static final String TRADE_RESPONSES_BINDING = "tradeResponses-out-0";
 

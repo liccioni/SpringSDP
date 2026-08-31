@@ -1,6 +1,7 @@
 package com.sdp.marketdata;
 
 import com.sdp.contracts.PriceTick;
+import com.sdp.contracts.SymbolCatalog;
 
 import java.time.Duration;
 import java.util.ArrayList;
@@ -17,15 +18,16 @@ import static org.mockito.Mockito.mock;
 
 class MarketDataServiceTest {
 
-    private static final Set<String> KNOWN_SYMBOLS = Set.of("EUR/USD", "GBP/USD", "USD/JPY");
+    private static final Set<String> KNOWN_SYMBOLS = Set.copyOf(SymbolCatalog.ALL_SYMBOLS);
 
     private final MarketDataService service = new MarketDataService(mock(StreamBridge.class));
 
     @Test
     void streamsOneTickPerSymbolOnEachInterval() {
-        StepVerifier.withVirtualTime(() -> service.priceTicks().take(6))
+        int symbolCount = SymbolCatalog.ALL_SYMBOLS.size();
+        StepVerifier.withVirtualTime(() -> service.priceTicks().take(symbolCount))
                 .thenAwait(Duration.ofSeconds(2))
-                .expectNextCount(6)
+                .expectNextCount(symbolCount)
                 .verifyComplete();
     }
 
