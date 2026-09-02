@@ -150,3 +150,28 @@ See [retro 0013](retros/0013-mvp-1.3.md) for what shipped, what was verified, an
 ## What's next
 
 MVP 0.1 through 1.3 are done; no milestone is currently in progress. Issue [#119](https://github.com/liccioni/SpringSDP/issues/119) (swappable messaging transport) is resolved without a milestone: it was a research issue, answered by [ADR 0030](decisions/0030-messaging-transport-swappability.md) - the Spring Cloud Stream groundwork already holds and a second binder is technically feasible, but not worth adding with no concrete consumer today. Backlog issues [#78](https://github.com/liccioni/SpringSDP/issues/78) (simulated execution venues), [#103](https://github.com/liccioni/SpringSDP/issues/103) (reverse proxy), [#120](https://github.com/liccioni/SpringSDP/issues/120) (Kubernetes manifests), [#121](https://github.com/liccioni/SpringSDP/issues/121) (cloud deployment options), and [#122](https://github.com/liccioni/SpringSDP/issues/122) (real market data providers) remain open, deliberately unscheduled per CLAUDE.md's Core philosophy - no concrete need for any of them has arrived yet. A new milestone would need one of these (or a newly filed issue) picked deliberately, per this project's "add scope only when a concrete need justifies it" philosophy - the next session should ask rather than assume which. A multi-cloud Terraform setup with a CLI installer to pick the provider was also considered and deliberately dropped rather than filed - it's a large amount of infrastructure for a single-maintainer project with no cloud deployment yet at all; #121 above covers picking one direction with a cost rationale instead.
+
+### Backlog execution strategy (if/when picked up)
+
+No hard dependency exists between any pair of these five issues - confirmed
+by re-reading all five issue bodies and every ADR/doc they reference. But
+they do split into two independent tracks, and one soft link inside the
+infra track is worth recording so a future session doesn't have to
+re-derive it:
+
+* **Infra/productionization track: [#121](https://github.com/liccioni/SpringSDP/issues/121) → [#103](https://github.com/liccioni/SpringSDP/issues/103) → [#120](https://github.com/liccioni/SpringSDP/issues/120).** #121 is pure research (a written cloud-provider/cost comparison, no code) and cheapest to resolve first. #120's own body says its in-cluster-vs-managed-services decision "ties into" the cloud-deployment investigation - i.e. #121's outcome. #103 shares #121's own stated trigger ("once TLS/production deployment becomes a real near-term goal") and doesn't depend on which cloud gets picked, so it can land once that shared trigger fires and before #120 needs a settled origin/TLS story. This is a rationale ordering, not a hard gate - no ADR mandates it.
+* **Trading-domain track: [#78](https://github.com/liccioni/SpringSDP/issues/78) and [#122](https://github.com/liccioni/SpringSDP/issues/122), independent of each other and of the infra track.** No stated ordering between them. #78's original precondition (needing `trading-service`'s request/reply message shape to exist) is already satisfied since MVP 0.7 shipped - it's unpicked, not blocked.
+
+Trigger conditions worth watching for, so a future session recognizes
+activation instead of inventing one: for the infra track, a real need to
+run outside "a single trusted Docker host" - [ADR 0021](decisions/0021-rabbitmq-network-segmentation.md)'s own stated trust-model boundary - e.g. a shareable/public demo or a security review; for the trading-domain track, a concrete product reason the single-venue model can't express (#78's own words) or a need for real price realism (#122's own words).
+
+Once a track activates, default to single-issue milestones (matching this
+project's established norm) rather than bundling a track's issues into one
+milestone - e.g. if the infra track activates, that's MVP 1.4 = #121 alone,
+then MVP 1.5 = #103 alone, then MVP 1.6 = #120 alone, each retro'd
+independently.
+
+This is a sequencing aid, not a scheduling decision - CLAUDE.md's "ask
+rather than assume" norm above still governs actually picking a track or
+issue to start.
