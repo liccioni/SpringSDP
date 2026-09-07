@@ -114,7 +114,7 @@ class LogoutIT implements RedisIntegrationTest, RabbitMqIntegrationTest {
 
         assertThat(location).startsWith("http://localhost:8081/realms/sdp/protocol/openid-connect/logout");
         assertThat(location).contains("id_token_hint=");
-        assertThat(location).contains("post_logout_redirect_uri=http://localhost:5173");
+        assertThat(location).contains("post_logout_redirect_uri=http://localhost:8080");
         assertThat(location).contains("client_id=sdp-backend");
 
         Message message = rabbitTemplate.receive(logoutQueue, 5000);

@@ -24,11 +24,11 @@ docs/                   architecture, protocol, roadmap, and decision records
 ### Docker Compose
 
 ```sh
-./startUpDocker.sh   # builds the gateway/market-data-service/trading-service + frontend images, starts every container, opens http://localhost:5173
+./startUpDocker.sh   # builds the gateway/market-data-service/trading-service + frontend images, starts every container, opens http://localhost:8080
 ./stopAllDocker.sh   # stops and removes the containers
 ```
 
-The Gateway is reachable directly at `ws://localhost:8080/ws`.
+A `proxy` container (issue #103, [ADR 0031](docs/decisions/0031-reverse-proxy-unified-origin.md)) is the only service exposed to the browser, unifying the frontend and the Gateway's WebSocket/OAuth2 endpoints under `http://localhost:8080` - including `ws://localhost:8080/ws`, no longer reachable directly on its own port.
 
 `startUpDocker.sh` always rebuilds every service image before starting, which avoids two easy-to-hit caveats of running `docker compose up` by hand: Compose can't build a service's image itself, since each is built via [Jib](docs/decisions/0005-jib-for-backend-image.md) rather than a Dockerfile (see [ADR 0006](docs/decisions/0006-hello-world-walking-skeleton.md)) — the script runs `jibDockerBuild` for each first; and Compose otherwise reuses whatever frontend image already exists rather than rebuilding it, which is why the script always passes `--build`.
 
@@ -41,6 +41,8 @@ cd market-data-service && ./gradlew bootRun              # market-data-service (
 cd trading-service && ./gradlew bootRun                  # trading-service (run in its own terminal)
 npm --prefix frontend run dev                             # frontend on :5173
 ```
+
+This path deliberately keeps the pre-existing two-origin topology (Gateway on `:8080`, Vite's own dev server on `:5173`) rather than the containerized `proxy`/single-origin setup above (issue #103, ADR 0031) - it runs bare processes, not the containerized topology, and the `proxy` container is never started here.
 
 All three services and the frontend can run as native processes, but Postgres, Redis, RabbitMQ, and Keycloak still run via Docker Compose — see [ADR 0014](docs/decisions/0014-postgresql-r2dbc-connectivity.md) for why "without Docker" doesn't mean without Postgres, and [ADR 0020](docs/decisions/0020-keycloak-oauth2-redis-session.md)/[ADR 0021](docs/decisions/0021-rabbitmq-network-segmentation.md) for the same reasoning extended to Redis/Keycloak (MVP 0.6) and RabbitMQ (MVP 0.7). Each `bootRun` blocks its terminal, so the three services need three separate terminals (or run them in the background). The Gateway itself starts fine without Redis/RabbitMQ/Keycloak reachable (nothing calls out to any of them at startup), but logging in fails as soon as you try it: without Redis, `/oauth2/authorization/keycloak` 500s (can't persist the OAuth2 authorization request to a session); without Keycloak, the browser has nowhere to redirect to; without RabbitMQ, no price ticks or trades will ever arrive.
 

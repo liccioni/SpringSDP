@@ -21,7 +21,7 @@
       "redirectUris": ["http://localhost:8080/login/oauth2/code/keycloak"],
       "webOrigins": [],
       "attributes": {
-        "post.logout.redirect.uris": "http://localhost:5173"
+        "post.logout.redirect.uris": "http://localhost:8080"
       },
       "protocolMappers": [
         {

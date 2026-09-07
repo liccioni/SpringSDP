@@ -8,8 +8,9 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$REPO_ROOT"
 
-FRONTEND_URL="http://localhost:5173"
-GATEWAY_URL="http://localhost:8080"
+# As of issue #103/ADR 0031, `proxy` unifies the frontend and gateway
+# origins onto one port - there's only one URL to wait for and open now.
+APP_URL="http://localhost:8080"
 
 echo "==> Building gateway, market-data-service, trading-service images (Jib)"
 (cd gateway && ./gradlew jibDockerBuild)
@@ -19,31 +20,23 @@ echo "==> Building gateway, market-data-service, trading-service images (Jib)"
 echo "==> Starting containers"
 docker compose up --build -d
 
-echo "==> Waiting for gateway and frontend to respond"
+echo "==> Waiting for the app to respond"
 for _ in $(seq 1 30); do
-  gateway_up=false
-  frontend_up=false
-  # -s (no -f): any response counts as "up", including the gateway's 404 on /
-  curl -s -o /dev/null "$GATEWAY_URL" && gateway_up=true || true
-  curl -s -o /dev/null "$FRONTEND_URL" && frontend_up=true || true
-
-  if $gateway_up && $frontend_up; then
-    break
-  fi
+  # -s (no -f): any response counts as "up", including a 404 on /
+  curl -s -o /dev/null "$APP_URL" && break || true
   sleep 1
 done
 
-echo "==> Opening $FRONTEND_URL"
+echo "==> Opening $APP_URL"
 if command -v open >/dev/null 2>&1; then
-  open "$FRONTEND_URL"
+  open "$APP_URL"
 elif command -v xdg-open >/dev/null 2>&1; then
-  xdg-open "$FRONTEND_URL"
+  xdg-open "$APP_URL"
 else
-  echo "Open $FRONTEND_URL in your browser."
+  echo "Open $APP_URL in your browser."
 fi
 
 echo
-echo "Gateway:  $GATEWAY_URL (ws://localhost:8080/ws)"
-echo "Frontend: $FRONTEND_URL"
-echo "Logs:     docker compose logs -f"
-echo "Stop:     ./stopAllDocker.sh"
+echo "App:  $APP_URL (ws://localhost:8080/ws)"
+echo "Logs: docker compose logs -f"
+echo "Stop: ./stopAllDocker.sh"

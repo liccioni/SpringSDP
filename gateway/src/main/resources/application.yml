@@ -34,6 +34,15 @@ spring:
             scope: openid,profile,email
             # Only applied automatically by the issuer-uri shortcut, which
             # this config deliberately doesn't use - see the comment above.
+            # {baseUrl} is derived from the incoming request's Host header
+            # at runtime - as of issue #103/ADR 0031 that request arrives
+            # via `proxy`, not directly, so this depends on proxy/nginx.conf
+            # forwarding the browser's original Host header unchanged
+            # (`proxy_set_header Host $host`). No scheme/port translation
+            # happens anywhere in that hop (no TLS, same external port), so
+            # server.forward-headers-strategy deliberately stays unset -
+            # only needed once a later TLS pass introduces a scheme
+            # mismatch (X-Forwarded-Proto).
             redirect-uri: "{baseUrl}/login/oauth2/code/{registrationId}"
         provider:
           keycloak:
@@ -128,11 +137,16 @@ spring:
 
 app:
   # Frontend origin the browser is redirected back to once oauth2Login
-  # succeeds (see SecurityConfig) - a different port from this service even
-  # in local dev. The default holds for Docker Compose too: the browser
-  # (not the frontend container) handles this redirect, so it always sees
-  # the host-published origin - see docs/protocol.md's Endpoint section.
-  frontend-origin: ${APP_FRONTEND_ORIGIN:http://localhost:5173}
+  # succeeds (see SecurityConfig), and the post_logout_redirect_uri sent to
+  # Keycloak below. As of issue #103/ADR 0031 this is the same origin
+  # `proxy` publishes for the whole app (frontend+gateway unified) - it
+  # stays an absolute URL regardless, since Keycloak (still a separate
+  # origin, localhost:8081) has no basis to resolve a relative
+  # post_logout_redirect_uri against. The default holds for Docker Compose
+  # too: the browser (not any container) handles this redirect, so it
+  # always sees the host-published origin - see docs/protocol.md's Endpoint
+  # section.
+  frontend-origin: ${APP_FRONTEND_ORIGIN:http://localhost:8080}
   keycloak:
     # Browser-driven, same as authorization-uri above (see that comment) -
     # AuditingLogoutSuccessHandler redirects the browser here directly, so

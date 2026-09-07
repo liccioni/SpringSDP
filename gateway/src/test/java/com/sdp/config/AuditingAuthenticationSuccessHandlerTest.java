@@ -26,7 +26,7 @@ class AuditingAuthenticationSuccessHandlerTest {
 
     private final StreamBridge streamBridge = mock(StreamBridge.class);
     private final AuditingAuthenticationSuccessHandler handler =
-            new AuditingAuthenticationSuccessHandler(streamBridge, "http://localhost:5173");
+            new AuditingAuthenticationSuccessHandler(streamBridge, "http://localhost:8080");
 
     @Test
     void publishesLoginSuccessThenRedirectsToTheFrontendOrigin() {
@@ -40,7 +40,7 @@ class AuditingAuthenticationSuccessHandlerTest {
 
         verify(streamBridge).send("loginSuccess-out-0", new LoginSuccess("trader1"));
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FOUND);
-        assertThat(exchange.getResponse().getHeaders().getLocation()).hasToString("http://localhost:5173");
+        assertThat(exchange.getResponse().getHeaders().getLocation()).hasToString("http://localhost:8080");
     }
 
     @Test
