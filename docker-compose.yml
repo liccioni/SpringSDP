@@ -1,25 +1,27 @@
 services:
-  # The only service exposed to the browser (issue #94 decommissions the
-  # monolith that used to play this role) - terminates the real WebSocket
-  # connection and the OAuth2 login flow. See ADR 0022 for the service
-  # boundaries and the strangler-fig migration (#90-#94) that got here.
+  # Terminates the real WebSocket connection and the OAuth2 login flow.
+  # No longer the service exposed to the browser as of issue #103/ADR 0031 -
+  # `proxy` below took over that role, reusing gateway's own 8080 default so
+  # VITE_WS_URL/VITE_LOGIN_URL and Keycloak's registered redirectUris didn't
+  # need to change. See ADR 0022 for the service boundaries and the
+  # strangler-fig migration (#90-#94) that got here.
   gateway:
     image: sdp-gateway:latest
-    # Dual-network, same as the monolith it replaced: `public` so the
-    # browser can reach it, `internal` so it can reach redis/rabbitmq -
-    # ADR 0021's "only the actual Gateway joins public" undersold this at
-    # the time it was written, before it was clear Gateway itself (not
-    # just the browser) needs direct connectivity to services living on
-    # `internal`. Market Data/Backend-Trading stay internal-only since
-    # neither is exposed to the browser or needs to be reached from it.
+    # Dual-network: `public` so `proxy` can reach it, `internal` so it can
+    # reach redis/rabbitmq directly - ADR 0021's "only the actual Gateway
+    # joins public" undersold this at the time it was written, before it
+    # was clear Gateway itself (not just the browser) needs direct
+    # connectivity to services living on `internal`. Market Data/
+    # Backend-Trading stay internal-only since neither is exposed to the
+    # browser or needs to be reached from it.
     networks:
       - public
       - internal
-    # Reclaims port 8080 now that the monolith is gone - keeps
-    # VITE_WS_URL/VITE_LOGIN_URL's existing localhost:8080 defaults working
-    # unchanged (see docs/protocol.md's Endpoint section).
-    ports:
-      - "8080:8080"
+    # No host-published port as of issue #103/ADR 0031 - `proxy` is now the
+    # sole browser-facing container on port 8080; gateway is reachable only
+    # from `proxy` over the `public` network. The "Without Docker" native
+    # dev path (README.md) still runs gateway as a bare process with no
+    # proxy involved, unaffected by this.
     environment:
       SPRING_DATA_REDIS_HOST: redis
       # Consumer of market-data-service's PRICE_TICK fanout exchange (issue
@@ -51,6 +53,21 @@ services:
       # retry, so a not-yet-ready Keycloak fails the whole gateway to start.
       keycloak:
         condition: service_healthy
+    # Added for issue #103/ADR 0031: `proxy` depends on this being actually
+    # ready (Spring Boot/Netty listening), not just "container started" -
+    # without it, `proxy` starts forwarding to a gateway whose JVM is still
+    # booting (~9s), and every request 502s until it catches up. Same
+    # curl-the-actuator-health-endpoint shape as Keycloak's healthcheck
+    # above, adapted since this image has curl rather than needing the
+    # /dev/tcp trick (no HTTP client at all in Keycloak's own base image).
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - curl -sf http://localhost:8080/actuator/health | grep -q '"status":"UP"'
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
 
   market-data-service:
     image: sdp-market-data-service:latest
@@ -107,12 +124,32 @@ services:
   frontend:
     build:
       context: ./frontend
+    # No host-published port as of issue #103/ADR 0031 - reachable only from
+    # `proxy` over the `public` network, same reasoning as `gateway` above.
     networks:
       - public
-    ports:
-      - "5173:80"
     depends_on:
-      - gateway
+      gateway:
+        condition: service_healthy
+
+  # Unifies frontend's and gateway's browser-facing origins onto one port
+  # (issue #103, ADR 0031) - local dev only, no TLS. See proxy/nginx.conf.
+  proxy:
+    build:
+      context: ./proxy
+    networks:
+      - public
+    # Reuses 8080 - gateway's own former default - so VITE_WS_URL/
+    # VITE_LOGIN_URL and Keycloak's registered redirectUris need no change.
+    ports:
+      - "8080:80"
+    depends_on:
+      # condition: service_healthy, not just service_started - see
+      # gateway's own healthcheck comment for why (issue #103/ADR 0031).
+      gateway:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
   redis:
     # redis:7-alpine, pinned by digest for reproducible builds
@@ -186,14 +223,17 @@ services:
       start_period: 10s
 
 networks:
-  # `gateway` (the only service exposed to the browser, as of #94) and
-  # Keycloak (for the browser-driven OAuth2 redirect) - both reachable from
-  # the host. See ADR 0021 for the trust-boundary reasoning.
+  # `proxy` (the only service exposed to the browser as of issue #103/ADR
+  # 0031, replacing `gateway` in that role) and Keycloak (for the
+  # browser-driven OAuth2 redirect) - both reachable from the host.
+  # `gateway` and `frontend` also join this network so `proxy` can reach
+  # them, but neither has its own host-published port anymore. See ADR 0021
+  # for the trust-boundary reasoning.
   public:
   # Postgres, Redis, RabbitMQ, market-data-service, and trading-service.
   # `gateway` also joins this network (see its own comment above) since it
-  # needs to reach redis/rabbitmq directly, not just be reached by the
-  # browser. Deliberately NOT marked `internal: true`: that flag disables
+  # needs to reach redis/rabbitmq directly, not just be reached by `proxy`.
+  # Deliberately NOT marked `internal: true`: that flag disables
   # host port publishing entirely for every service solely attached to it
   # (a real, documented Compose behavior, not just a routing restriction) -
   # which would break postgres/redis's own `ports:` entries, kept for the

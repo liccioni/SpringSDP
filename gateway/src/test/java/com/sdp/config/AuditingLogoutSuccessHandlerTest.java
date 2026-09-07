@@ -34,7 +34,7 @@ class AuditingLogoutSuccessHandlerTest {
     private final AuditingLogoutSuccessHandler handler = new AuditingLogoutSuccessHandler(
             streamBridge,
             "http://localhost:8081/realms/sdp/protocol/openid-connect/logout",
-            "http://localhost:5173",
+            "http://localhost:8080",
             "sdp-backend");
 
     private Authentication oidcAuthentication(String username) {
@@ -60,7 +60,7 @@ class AuditingLogoutSuccessHandlerTest {
         String location = exchange.getResponse().getHeaders().getLocation().toString();
         assertThat(location).startsWith("http://localhost:8081/realms/sdp/protocol/openid-connect/logout");
         assertThat(location).contains("id_token_hint=id-token-trader1");
-        assertThat(location).contains("post_logout_redirect_uri=http://localhost:5173");
+        assertThat(location).contains("post_logout_redirect_uri=http://localhost:8080");
         assertThat(location).contains("client_id=sdp-backend");
     }
 
@@ -88,6 +88,6 @@ class AuditingLogoutSuccessHandlerTest {
 
         assertThat(exchange.getResponse().getStatusCode()).isEqualTo(HttpStatus.FOUND);
         assertThat(exchange.getResponse().getHeaders().getLocation().toString())
-                .isEqualTo("http://localhost:5173");
+                .isEqualTo("http://localhost:8080");
     }
 }
